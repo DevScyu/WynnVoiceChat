@@ -12,6 +12,8 @@ class VoiceSession(
     @Volatile var tier: VoiceTier,
     @Volatile var instance: String,
     val createdAt: Long,
+    /** Row id in `voice_sessions`. */
+    val recordId: Int,
 ) {
     @Volatile var address: InetSocketAddress? = null
     @Volatile var connected = false
@@ -19,6 +21,8 @@ class VoiceSession(
     @Volatile var lastKeepAliveResponse = createdAt
     @Volatile var lastActivity = createdAt
     @Volatile var lastPeers: List<Peer>? = null
+    /** Last SVC mic sequence number seen, for upstream-loss accounting. */
+    var lastSequence = -1L
 
     val speech = SpeechRingBuffer()
     val micLimiter = RateLimiter(max = 60, windowMs = 1000)

@@ -26,6 +26,8 @@ import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.VoiceTier
 import wynnvoice.server.ApiFetcher
+import wynnvoice.server.Metrics
+import wynnvoice.server.MetricsTest
 import wynnvoice.server.voice.FiledReport
 import wynnvoice.server.voice.NewReport
 import wynnvoice.server.voice.Player
@@ -83,6 +85,7 @@ class DiscordModerationTest {
     }
 
     private fun handle(json: String): JsonObject = JsonParser.parseString(discord.handle(json)).asJsonObject
+    private fun sample(series: String) = MetricsTest.sample(Metrics.scrape(), series)!!.toDouble()
     private fun content(response: JsonObject) = response.getAsJsonObject("data")["content"].asString
     private fun assertEphemeral(response: JsonObject) {
         assertEquals(4, response["type"].asInt)
@@ -139,12 +142,18 @@ class DiscordModerationTest {
 
     @Test
     fun `interactions without the moderator role are refused`() {
+        val dismissRefused = sample("voice_discord_interactions_total{kind=\"dismiss_button\",outcome=\"unauthorized\"}")
+        val bansRefused = sample("voice_discord_interactions_total{kind=\"cmd_bans\",outcome=\"unauthorized\"}")
+        val pings = sample("voice_discord_interactions_total{kind=\"ping\",outcome=\"ok\"}")
         val refused = handle(button("dismiss:1", "other-role"))
         assertEphemeral(refused)
         assertEquals("You need the moderator role to do that.", content(refused))
         assertEphemeral(handle(slash("bans", roles = arrayOf())))
         assertTrue(content(handle(slash("bans", roles = arrayOf()))).contains("moderator role"))
         assertEquals("""{"type":1}""", discord.handle("""{"type":1}"""))
+        assertEquals(dismissRefused + 1, sample("voice_discord_interactions_total{kind=\"dismiss_button\",outcome=\"unauthorized\"}"))
+        assertEquals(bansRefused + 2, sample("voice_discord_interactions_total{kind=\"cmd_bans\",outcome=\"unauthorized\"}"))
+        assertEquals(pings + 1, sample("voice_discord_interactions_total{kind=\"ping\",outcome=\"ok\"}"))
     }
 
     // --- buttons ---
@@ -158,9 +167,13 @@ class DiscordModerationTest {
         val reporter = onVoice("Alice")
         val target = onVoice("Bob")
         val id = filedReport(reporter, target)
+        val buttonBans = sample("voice_bans_total{action=\"ban\",source=\"button\"}")
+        val banButtons = sample("voice_discord_interactions_total{kind=\"ban_button\",outcome=\"ok\"}")
 
         val response = handle(button("ban:7:$id"))
 
+        assertEquals(buttonBans + 1, sample("voice_bans_total{action=\"ban\",source=\"button\"}"))
+        assertEquals(banButtons + 1, sample("voice_discord_interactions_total{kind=\"ban_button\",outcome=\"ok\"}"))
         assertEquals(7, response["type"].asInt)
         assertEquals("Banned for 7 days by <@42>", content(response))
         assertEquals(0, response.getAsJsonObject("data").getAsJsonArray("components").size())

@@ -8,12 +8,17 @@ class ConnectionRateLimiter(
     private val maxHandshaking: Int = 500,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    enum class Limit { CONCURRENT_PER_IP, PER_MINUTE_PER_IP, HANDSHAKING }
+
     private class IpState(var concurrent: Int, var tokens: Int, var lastRefillMs: Long)
 
     private val ipStates = ConcurrentHashMap<String, IpState>()
 
-    fun tryAcquire(ip: String, currentHandshaking: Int): Boolean {
-        if (currentHandshaking >= maxHandshaking) return false
+    fun tryAcquire(ip: String, currentHandshaking: Int): Boolean = refusal(ip, currentHandshaking) == null
+
+    /** Takes a slot and returns null, or names the limit that refused it. */
+    fun refusal(ip: String, currentHandshaking: Int): Limit? {
+        if (currentHandshaking >= maxHandshaking) return Limit.HANDSHAKING
         val state = ipStates.computeIfAbsent(ip) { IpState(0, maxPerMinutePerIp, clock()) }
         synchronized(state) {
             val now = clock()
@@ -22,10 +27,11 @@ class ConnectionRateLimiter(
                 state.tokens = minOf(maxPerMinutePerIp, state.tokens + refill)
                 state.lastRefillMs = now
             }
-            if (state.concurrent >= maxConcurrentPerIp || state.tokens <= 0) return false
+            if (state.concurrent >= maxConcurrentPerIp) return Limit.CONCURRENT_PER_IP
+            if (state.tokens <= 0) return Limit.PER_MINUTE_PER_IP
             state.tokens--
             state.concurrent++
-            return true
+            return null
         }
     }
 

@@ -29,6 +29,7 @@ class ControlHandlerTest {
     private val uuid = UUID.randomUUID()
     private var fetched: Pair<String, String>? = null
     private var authenticated: ControlHandler? = null
+    private lateinit var handler: ControlHandler
     private val config = VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000)
     private val moderation = testModeration("control-handler-test")
     private fun manager(config: VoiceConfig) = VoiceManager(config, moderation, { _, _ -> }, { CompletableFuture.completedFuture(null) })
@@ -45,7 +46,8 @@ class ControlHandlerTest {
             fetched = username to serverId
             runCatching { CompletableFuture.completedFuture(session()) }.getOrElse { CompletableFuture.failedFuture(it) }
         }
-        return EmbeddedChannel(ControlHandler(fetcher, guilds, voice) { authenticated = it })
+        handler = ControlHandler(fetcher, guilds, voice) { authenticated = it }
+        return EmbeddedChannel(handler)
     }
 
     private fun EmbeddedChannel.hello(version: Int = Protocol.VERSION, modVersion: String = "1.0.0", svcVersion: Int = 20): Packet? {
@@ -93,11 +95,14 @@ class ControlHandlerTest {
 
     @Test
     fun `uuid mismatch is a bad session`() {
+        val before = MetricsTest.sample(Metrics.scrape(), "voice_auth_total{result=\"bad_session\"}")!!.toDouble()
         val ch = channel { UUID.randomUUID() }
         ch.hello()
         assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION), ch.auth())
         assertFalse(ch.isOpen)
         assertNull(authenticated)
+        assertEquals(before + 1, MetricsTest.sample(Metrics.scrape(), "voice_auth_total{result=\"bad_session\"}")!!.toDouble())
+        assertEquals(CloseReason.AUTH_FAILED, handler.closeReason)
     }
 
     @Test
@@ -130,6 +135,7 @@ class ControlHandlerTest {
         val ch = channel { uuid }
         assertNull(ch.auth())
         assertFalse(ch.isOpen)
+        assertEquals(CloseReason.PROTOCOL_ERROR, handler.closeReason)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package wynnvoice.server.voice
 
+import io.micrometer.core.instrument.binder.netty4.NettyEventExecutorMetrics
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBufUtil
 import io.netty.buffer.Unpooled
@@ -11,8 +12,10 @@ import io.netty.channel.SimpleChannelInboundHandler
 import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.DatagramPacket
 import io.netty.channel.socket.nio.NioDatagramChannel
+import io.netty.util.concurrent.DefaultThreadFactory
 import java.net.InetSocketAddress
 import org.slf4j.LoggerFactory
+import wynnvoice.server.Metrics
 
 /**
  * UDP endpoint Simple Voice Chat clients talk to. One event loop; [onDatagram] runs on it.
@@ -23,12 +26,13 @@ class VoiceUdpServer(
     private val onDatagram: (InetSocketAddress, ByteArray) -> Unit,
 ) : VoiceTransport {
     private val logger = LoggerFactory.getLogger(VoiceUdpServer::class.java)
-    private val group = MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
+    private val group = MultiThreadIoEventLoopGroup(1, DefaultThreadFactory("voice-udp"), NioIoHandler.newFactory())
     private lateinit var channel: Channel
 
     val boundPort: Int get() = (channel.localAddress() as InetSocketAddress).port
 
     fun start() {
+        NettyEventExecutorMetrics(group).bindTo(Metrics.registry)
         channel = Bootstrap()
             .group(group)
             .channel(NioDatagramChannel::class.java)

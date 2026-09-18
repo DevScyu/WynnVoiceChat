@@ -1,5 +1,7 @@
 package wynnvoice.server.voice
 
+import io.micrometer.prometheusmetrics.PrometheusConfig
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -14,6 +16,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
@@ -22,6 +25,7 @@ import wynnvoice.protocol.Relation
 import wynnvoice.protocol.ResultKind
 import wynnvoice.protocol.VoiceTier
 import wynnvoice.server.ApiFetcher
+import wynnvoice.server.MetricsTest
 import wynnvoice.server.voice.svc.SvcCodec
 import wynnvoice.server.voice.svc.SvcCrypto
 import wynnvoice.server.voice.svc.SvcPacket
@@ -50,7 +54,11 @@ class VoiceManagerTest {
         CompletableFuture.completedFuture(id?.let { "{\"id\":\"${it.toString().replace("-", "")}\",\"name\":\"x\"}" })
     }
 
-    private fun manager(config: VoiceConfig = this.config) = VoiceManager(config, moderation, transport, mojang) { now }
+    private val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+
+    private fun manager(config: VoiceConfig = this.config) = VoiceManager(config, moderation, transport, mojang, registry) { now }
+
+    private fun sample(series: String): Double? = MetricsTest.sample(registry.scrape(), series)?.toDouble()
 
     private fun player(name: String, position: Position? = Position(0f, 100f, 0f), world: String? = "WC1"): Player {
         val uuid = UUID.nameUUIDFromBytes(name.toByteArray())
@@ -532,5 +540,120 @@ class VoiceManagerTest {
         now += 10 * 60_000 + 1
         manager.onDatagram(addrB, clientDatagram(a, secret, SvcPacket.Authenticate(a.uuid, secret)))
         assertEquals(1, transport.sent.size)
+    }
+
+    // --- metrics ---
+
+    @Test
+    fun `metrics follow sessions and datagrams`() {
+        val a = player("A").also { it.party = setOf("P") }
+        val p = player("P").also { it.party = setOf("A") }
+        assertEquals(0.0, sample("voice_sessions_started_total"))
+        assertEquals(0.0, sample("voice_udp_dropped_total{reason=\"no_session\"}"), "counters exist before any event")
+
+        val secretA = connect(a, addrA, VoiceTier.PARTY)
+        connect(p, addrB, VoiceTier.EVERYONE)
+        assertEquals(2.0, sample("voice_sessions_started_total"))
+        assertEquals(1.0, sample("voice_sessions{tier=\"PARTY\"}"))
+        assertEquals(1.0, sample("voice_sessions{tier=\"EVERYONE\"}"))
+        assertEquals(2.0, sample("voice_sessions_connected"))
+        assertEquals(2.0, sample("voice_udp_packets_total{type=\"authenticate\"}"))
+
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1, 2, 3), 7, whispering = false)))
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1, 2, 3), 10, whispering = false)))
+        assertEquals(6.0, sample("voice_udp_datagrams_total{direction=\"in\"}"))
+        assertEquals(6.0, sample("voice_udp_datagrams_total{direction=\"out\"}"))
+        assertTrue(sample("voice_udp_bytes_total{direction=\"out\"}")!! > 0.0)
+        assertEquals(2.0, sample("voice_mic_frames_total"))
+        assertEquals(2.0, sample("voice_mic_sequence_gaps_total"))
+        assertEquals(2.0, sample("voice_route_candidates_total{outcome=\"self\"}"))
+        assertEquals(2.0, sample("voice_route_candidates_total{outcome=\"group\"}"))
+        assertEquals(2.0, sample("voice_fanout_recipients_bucket{le=\"1.0\"}"))
+        assertEquals(6.0, sample("voice_relay_seconds_count"))
+        assertTrue(sample("voice_ring_bytes")!! > 0.0)
+
+        now += 40_000
+        manager.leave(a)
+        manager.leave(p)
+        assertEquals(0.0, sample("voice_sessions{tier=\"PARTY\"}"))
+        assertEquals(0.0, sample("voice_sessions_connected"))
+        assertEquals(2.0, sample("voice_sessions_ended_total{reason=\"left\"}"))
+        assertEquals(2.0, sample("voice_session_duration_seconds_bucket{le=\"60.0\"}"))
+        assertEquals(0.0, sample("voice_session_duration_seconds_bucket{le=\"30.0\"}"))
+    }
+
+    @Test
+    fun `party speaker against an everyone listener is tier denied`() {
+        val a = player("A")
+        val s = player("S", Position(10f, 100f, 0f))
+        val secretA = connect(a, addrA, VoiceTier.PARTY)
+        connect(s, addrB, VoiceTier.EVERYONE)
+
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1), 1, whispering = false)))
+
+        assertEquals(1.0, sample("voice_route_candidates_total{outcome=\"tier_denied\"}"))
+        assertEquals(0.0, sample("voice_route_candidates_total{outcome=\"proximity\"}"))
+        assertEquals(1.0, sample("voice_fanout_recipients_bucket{le=\"1.0\"}"))
+        assertEquals(0.0, sample("voice_fanout_recipients_sum"))
+    }
+
+    @Test
+    fun `world label only accepts real worlds`() {
+        connect(player("A", world = "WC12"), addrA)
+        connect(player("B", world = "WC12"), addrB)
+        connect(player("C", world = "lobby-x\"} 9"), addrC)
+        connect(player("D", world = null), InetSocketAddress("10.0.0.4", 1))
+
+        manager.syncPeers()
+
+        val scrape = registry.scrape()
+        assertEquals("2.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"WC12\"}"), scrape)
+        assertEquals("2.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"other\"}"), scrape)
+        assertFalse(scrape.contains("lobby"), scrape)
+        assertEquals("4.0", MetricsTest.sample(scrape, "voice_sessions_by_version{version=\"other\"}"), scrape)
+    }
+
+    @Test
+    fun `dropped datagrams and refusals are counted by reason`() {
+        val a = player("A")
+        manager.join(a, 18, VoiceTier.PARTY, "")
+        assertEquals(1.0, sample("voice_sessions_ended_total{reason=\"unsupported_svc_version\"}"))
+
+        val secret = connect(a, addrA)
+        manager.onDatagram(addrA, byteArrayOf(1, 2, 3))
+        manager.onDatagram(addrA, clientDatagram(player("Nobody"), ByteArray(16), SvcPacket.KeepAlive))
+        manager.onDatagram(addrA, clientDatagram(a, ByteArray(16), SvcPacket.KeepAlive))
+        manager.onDatagram(addrB, clientDatagram(a, secret, SvcPacket.KeepAlive))
+        manager.onDatagram(addrA, clientDatagram(a, secret, SvcPacket.Authenticate(a.uuid, ByteArray(16))))
+        repeat(61) { manager.onDatagram(addrA, clientDatagram(a, secret, SvcPacket.Mic(byteArrayOf(1), it.toLong(), false))) }
+
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"undecodable\"}"))
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"no_session\"}"))
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"decrypt_failed\"}"))
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"wrong_address\"}"))
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"bad_secret\"}"))
+        assertEquals(1.0, sample("voice_udp_dropped_total{reason=\"mic_rate_limited\"}"))
+        assertEquals(60.0, sample("voice_mic_frames_total"))
+    }
+
+    @Test
+    fun `voice_sessions has one row after join and leave and old rows are pruned`() {
+        val a = player("A", world = "WC3")
+        connect(a, addrA, VoiceTier.FRIENDS_AND_GUILD)
+        now += 5_000
+        manager.leave(a)
+
+        val row = transaction(moderation.db) { VoiceSessionsTable.selectAll().single() }
+        assertEquals(a.uuid, row[VoiceSessionsTable.uuid])
+        assertEquals("A", row[VoiceSessionsTable.name])
+        assertEquals(1_000_000L, row[VoiceSessionsTable.startedAt])
+        assertEquals(1_005_000L, row[VoiceSessionsTable.endedAt])
+        assertEquals("FRIENDS_AND_GUILD", row[VoiceSessionsTable.tier])
+        assertEquals("WC3", row[VoiceSessionsTable.world])
+        assertEquals("left", row[VoiceSessionsTable.endReason])
+
+        now += 91L * 24 * 60 * 60_000
+        manager.maintain()
+        assertEquals(0, transaction(moderation.db) { VoiceSessionsTable.selectAll().count() })
     }
 }

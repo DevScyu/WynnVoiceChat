@@ -41,10 +41,12 @@ fun main() {
     }
     if (discord != null) discord.start(env("HTTP_PORT", "9101").toInt())
     else log.warn("Discord moderation disabled: set {} to enable it", DiscordConfig.VARIABLES.joinToString(", "))
+    val metrics = env("METRICS_PORT", "9102").toInt().takeIf { it != 0 }?.let { Metrics.start(env("METRICS_BIND", "127.0.0.1"), it) }
     server.start()
     Runtime.getRuntime().addShutdownHook(Thread {
         server.stop()
         discord?.stop()
+        metrics?.stop(0)
         voice.stop()
         udp.stop()
     })

@@ -8,6 +8,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class GuildResolverTest {
+    private fun sample(series: String) = MetricsTest.sample(Metrics.scrape(), series)!!.toDouble()
+
     private val player = UUID.fromString("1ed075fc-5aa9-42e0-a29f-640326c1d80c")
     private val requests = ArrayList<String>()
     private var responses = HashMap<String, () -> String?>()
@@ -34,6 +36,8 @@ class GuildResolverTest {
 
     @Test
     fun `resolves members through both endpoints and caches per guild`() {
+        val hits = sample("voice_guild_lookups_total{result=\"hit\"}")
+        val misses = sample("voice_guild_lookups_total{result=\"miss\"}")
         serve("/v3/player/$player" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
         assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(player).join())
         assertEquals(listOf(
@@ -46,6 +50,8 @@ class GuildResolverTest {
         assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(mate).join())
         assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(player).join())
         assertEquals(3, requests.size, "guild members and the player's guild are cached")
+        assertEquals(hits + 1, sample("voice_guild_lookups_total{result=\"hit\"}"))
+        assertEquals(misses + 2, sample("voice_guild_lookups_total{result=\"miss\"}"))
 
         now += GuildResolver.CACHE_MS
         serve("/v3/player/$player" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })

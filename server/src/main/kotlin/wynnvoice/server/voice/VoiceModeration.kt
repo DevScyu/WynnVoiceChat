@@ -7,8 +7,10 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -18,6 +20,9 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import wynnvoice.protocol.Packet.Position
+import wynnvoice.protocol.VoiceTier
+import wynnvoice.server.Metrics
+import wynnvoice.server.Metrics.sloTimer
 
 data class NewReport(
     val reporterId: UUID,
@@ -34,6 +39,11 @@ data class NewReport(
 
 data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?)
 
+enum class DbOp {
+    INIT, BLOCK, UNBLOCK, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_TARGET, MARK_HANDLED, ATTACH_AUDIO,
+    RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
+}
+
 /**
  * Blocks, bans and report rows. Blocks are cached in memory because routing asks per mic frame;
  * bans are read on demand (auth) and by the 60 s poll in VoiceManager.
@@ -43,13 +53,18 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
 
     private val blocks = ConcurrentHashMap<UUID, MutableSet<UUID>>()
 
+    private fun <T> db(op: DbOp, statement: JdbcTransaction.() -> T): T =
+        DB_TIMERS.getValue(op).recordCallable { transaction(db, statement = statement) }
+
     fun init() {
-        transaction(db) { SchemaUtils.create(VoiceBlocksTable, VoiceBansTable, VoiceReportsTable) }
+        db(DbOp.INIT) { SchemaUtils.create(VoiceBlocksTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable) }
         blocks.clear()
-        transaction(db) { VoiceBlocksTable.selectAll().map { it[VoiceBlocksTable.blocker] to it[VoiceBlocksTable.blocked] } }
+        db(DbOp.INIT) { VoiceBlocksTable.selectAll().map { it[VoiceBlocksTable.blocker] to it[VoiceBlocksTable.blocked] } }
             .forEach { (blocker, blocked) -> blocks.computeIfAbsent(blocker) { ConcurrentHashMap.newKeySet() }.add(blocked) }
-        logger.info("Voice moderation loaded: {} blocks", blocks.values.sumOf { it.size })
+        logger.info("Voice moderation loaded: {} blocks", blockCount)
     }
+
+    val blockCount: Int get() = blocks.values.sumOf { it.size }
 
     fun isBlocked(a: UUID, b: UUID): Boolean =
         blocks[a]?.contains(b) == true || blocks[b]?.contains(a) == true
@@ -58,7 +73,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         val added = blocks.computeIfAbsent(blocker) { ConcurrentHashMap.newKeySet() }.add(blocked)
         if (!added) return
         val now = clock()
-        transaction(db) {
+        db(DbOp.BLOCK) {
             VoiceBlocksTable.insert {
                 it[VoiceBlocksTable.blocker] = blocker
                 it[VoiceBlocksTable.blocked] = blocked
@@ -69,7 +84,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
 
     fun unblock(blocker: UUID, blocked: UUID) {
         blocks[blocker]?.remove(blocked)
-        transaction(db) {
+        db(DbOp.UNBLOCK) {
             VoiceBlocksTable.deleteWhere { (VoiceBlocksTable.blocker eq blocker) and (VoiceBlocksTable.blocked eq blocked) }
         }
     }
@@ -80,7 +95,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
 
     fun ban(userId: UUID, reason: String, bannedBy: String, expiresAt: Long?) {
         val now = clock()
-        transaction(db) {
+        db(DbOp.BAN) {
             VoiceBansTable.insert {
                 it[VoiceBansTable.userId] = userId
                 it[VoiceBansTable.reason] = reason
@@ -94,14 +109,14 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     /** Lifts every active ban of the player; returns how many were lifted. */
     fun unban(userId: UUID): Int {
         val now = clock()
-        return transaction(db) {
+        return db(DbOp.UNBAN) {
             VoiceBansTable.update({ (VoiceBansTable.userId eq userId) and VoiceBansTable.liftedAt.isNull() }) { it[liftedAt] = now }
         }
     }
 
     fun activeBanRows(): List<Ban> {
         val now = clock()
-        return transaction(db) {
+        return db(DbOp.ACTIVE_BAN_ROWS) {
             VoiceBansTable.selectAll()
                 .where { VoiceBansTable.liftedAt.isNull() and (VoiceBansTable.expiresAt.isNull() or (VoiceBansTable.expiresAt greater now)) }
                 .map { Ban(it[VoiceBansTable.userId], it[VoiceBansTable.reason], it[VoiceBansTable.bannedBy], it[VoiceBansTable.expiresAt]) }
@@ -111,7 +126,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     fun activeBans(userIds: Collection<UUID>): Set<UUID> {
         if (userIds.isEmpty()) return emptySet()
         val now = clock()
-        return transaction(db) {
+        return db(DbOp.ACTIVE_BANS) {
             VoiceBansTable.selectAll()
                 .where {
                     (VoiceBansTable.userId inList userIds) and
@@ -125,7 +140,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
 
     fun createReport(report: NewReport): Int {
         val now = clock()
-        return transaction(db) {
+        return db(DbOp.CREATE_REPORT) {
             VoiceReportsTable.insertAndGetId {
                 it[reporterId] = report.reporterId
                 it[targetId] = report.targetId
@@ -146,13 +161,13 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
-    fun reportTarget(reportId: Int): UUID? = transaction(db) {
+    fun reportTarget(reportId: Int): UUID? = db(DbOp.REPORT_TARGET) {
         VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()?.get(VoiceReportsTable.targetId)
     }
 
     fun markHandled(reportId: Int, by: String) {
         val now = clock()
-        transaction(db) {
+        db(DbOp.MARK_HANDLED) {
             VoiceReportsTable.update({ VoiceReportsTable.id eq reportId }) {
                 it[handled] = true
                 it[handledBy] = by
@@ -162,7 +177,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     }
 
     fun attachAudio(reportId: Int, reporterPath: String?, targetPath: String?) {
-        transaction(db) {
+        db(DbOp.ATTACH_AUDIO) {
             VoiceReportsTable.update({ VoiceReportsTable.id eq reportId }) {
                 it[reporterAudioPath] = reporterPath
                 it[targetAudioPath] = targetPath
@@ -170,7 +185,32 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
+    fun recordSession(uuid: UUID, name: String, startedAt: Long, tier: VoiceTier, world: String?): Int = db(DbOp.RECORD_SESSION) {
+        VoiceSessionsTable.insertAndGetId {
+            it[VoiceSessionsTable.uuid] = uuid
+            it[VoiceSessionsTable.name] = name
+            it[VoiceSessionsTable.startedAt] = startedAt
+            it[VoiceSessionsTable.tier] = tier.name
+            it[VoiceSessionsTable.world] = world
+        }.value
+    }
+
+    fun endSession(sessionId: Int, endedAt: Long, reason: String) {
+        db(DbOp.END_SESSION) {
+            VoiceSessionsTable.update({ VoiceSessionsTable.id eq sessionId }) {
+                it[VoiceSessionsTable.endedAt] = endedAt
+                it[endReason] = reason
+            }
+        }
+    }
+
+    fun pruneSessions(startedBefore: Long) {
+        db(DbOp.PRUNE_SESSIONS) { VoiceSessionsTable.deleteWhere { startedAt less startedBefore } }
+    }
+
     companion object {
+        private val DB_TIMERS = DbOp.entries.associateWith { Metrics.registry.sloTimer("voice_db_seconds", Metrics.DB_SLO, "op", it.name.lowercase()) }
+
         fun openSqlite(path: String): Database = Database.connect("jdbc:sqlite:$path")
     }
 }

@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import wynnvoice.protocol.AuthStatus
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Protocol
@@ -37,6 +38,8 @@ class ControlServerTest {
         server.start()
     }
 
+    private fun sample(series: String) = MetricsTest.sample(Metrics.scrape(), series)!!.toDouble()
+
     @AfterTest
     fun stop() {
         clientGroup.shutdownGracefully()
@@ -45,6 +48,12 @@ class ControlServerTest {
 
     @Test
     fun `handshake completes over a real socket`() {
+        val opened = sample("voice_control_connections_opened_total")
+        val closed = sample("voice_control_connections_closed_total{reason=\"client_closed\"}")
+        val hellos = sample("voice_control_packets_total{direction=\"in\",type=\"Hello\"}")
+        val challenges = sample("voice_control_packets_total{direction=\"out\",type=\"AuthChallenge\"}")
+        val bytesIn = sample("voice_control_bytes_total{direction=\"in\"}")
+
         val received = LinkedBlockingQueue<Packet>()
         val channel = Bootstrap().group(clientGroup).channel(NioSocketChannel::class.java)
             .handler(object : ChannelInitializer<SocketChannel>() {
@@ -65,15 +74,27 @@ class ControlServerTest {
 
         channel.writeAndFlush(Packet.Auth("Player", uuid))
         assertEquals(Packet.AuthResult(AuthStatus.OK), received.poll(5, TimeUnit.SECONDS))
+        assertEquals(1.0, sample("voice_control_connections{state=\"authenticated\"}"))
         channel.close().sync()
+        Thread.sleep(200)
+
+        assertEquals(opened + 1, sample("voice_control_connections_opened_total"))
+        assertEquals(closed + 1, sample("voice_control_connections_closed_total{reason=\"client_closed\"}"))
+        assertEquals(hellos + 1, sample("voice_control_packets_total{direction=\"in\",type=\"Hello\"}"))
+        assertEquals(challenges + 1, sample("voice_control_packets_total{direction=\"out\",type=\"AuthChallenge\"}"))
+        assertTrue(sample("voice_control_bytes_total{direction=\"in\"}") > bytesIn)
+        assertEquals(0.0, sample("voice_control_connections{state=\"authenticated\"}"))
+        assertTrue(Metrics.scrape().contains("netty_eventexecutor_tasks_pending{name=\"control-worker-"), "netty binder on the worker group")
     }
 
     @Test
     fun `connections beyond the per ip limit are dropped at accept`() {
+        val limited = sample("voice_control_rate_limited_total{limit=\"concurrent_per_ip\"}")
         val kept = List(2) { Socket("127.0.0.1", server.boundPort) }
         val extra = Socket("127.0.0.1", server.boundPort)
         assertEquals(-1, extra.getInputStream().read())
         kept.forEach { it.close() }
         extra.close()
+        assertEquals(limited + 1, sample("voice_control_rate_limited_total{limit=\"concurrent_per_ip\"}"))
     }
 }

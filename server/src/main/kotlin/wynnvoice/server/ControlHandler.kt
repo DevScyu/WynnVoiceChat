@@ -3,6 +3,8 @@ package wynnvoice.server
 import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.SimpleChannelInboundHandler
+import io.netty.handler.codec.DecoderException
+import io.netty.handler.timeout.ReadTimeoutException
 import io.netty.handler.timeout.ReadTimeoutHandler
 import org.slf4j.LoggerFactory
 import java.security.SecureRandom
@@ -11,6 +13,7 @@ import java.util.UUID
 import wynnvoice.protocol.AuthStatus
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Protocol
+import wynnvoice.server.Metrics.counters
 import wynnvoice.server.voice.Player
 import wynnvoice.server.voice.VoiceManager
 
@@ -31,6 +34,8 @@ class ControlHandler(
     val username: String? get() = player?.name
     var modVersion: String = "other"
         private set
+    var closeReason = CloseReason.CLIENT_CLOSED
+        private set
 
     val authenticated get() = stage == Stage.READY
 
@@ -39,8 +44,13 @@ class ControlHandler(
             stage == Stage.HELLO && packet is Packet.Hello -> onHello(ctx, packet)
             stage == Stage.AUTH && packet is Packet.Auth -> onAuth(ctx, packet)
             stage == Stage.READY -> onPacket(player!!, packet)
-            else -> ctx.close()
+            else -> close(ctx, CloseReason.PROTOCOL_ERROR)
         }
+    }
+
+    private fun close(ctx: ChannelHandlerContext, reason: CloseReason) {
+        closeReason = reason
+        ctx.close()
     }
 
     private fun onPacket(player: Player, packet: Packet) {
@@ -93,10 +103,11 @@ class ControlHandler(
                 voice.moderation.isBanned(auth.uuid) -> refuse(ctx, AuthStatus.BANNED)
                 !voice.config.allows(auth.uuid) -> refuse(ctx, AuthStatus.NOT_ALLOWED)
                 else -> {
-                    val verifiedPlayer = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }
+                    val verifiedPlayer = Player(auth.uuid, auth.username, modVersion) { ctx.writeAndFlush(it) }
                     player = verifiedPlayer
                     stage = Stage.READY
                     ctx.pipeline().get(ReadTimeoutHandler::class.java)?.let(ctx.pipeline()::remove)
+                    authResults.getValue(AuthStatus.OK).increment()
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
                     guilds.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
                     onAuthenticated(this)
@@ -106,16 +117,21 @@ class ControlHandler(
     }
 
     private fun refuse(ctx: ChannelHandlerContext, status: AuthStatus) {
+        authResults.getValue(status).increment()
+        closeReason = CloseReason.AUTH_FAILED
         ctx.writeAndFlush(Packet.AuthResult(status)).addListener(ChannelFutureListener.CLOSE)
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
         log.debug("Closing {}: {}", ctx.channel().remoteAddress(), cause.toString())
-        ctx.close()
+        if (cause is DecoderException) decodeErrors.increment()
+        close(ctx, if (cause is ReadTimeoutException) CloseReason.TIMED_OUT else CloseReason.PROTOCOL_ERROR)
     }
 
     companion object {
         private val log = LoggerFactory.getLogger(ControlHandler::class.java)
+        private val authResults = Metrics.registry.counters<AuthStatus>("voice_auth_total", "result")
+        private val decodeErrors = Metrics.registry.counter("voice_control_decode_errors_total")
         private val RANDOM = SecureRandom()
         private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
         private val MOD_VERSION = Regex("\\d+\\.\\d+\\.\\d+")

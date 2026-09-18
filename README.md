@@ -142,6 +142,7 @@ To build:
 | `VOICE_REPORT_DIR`                  | `voice-reports` | Directory report audio is written to, one folder per report id |
 | `DB_PATH`                           | `voice.db` | SQLite file holding blocks, bans and reports; created on startup |
 | `HTTP_PORT`                         | `9101`    | HTTP port serving only `POST /discord`, the Discord interactions endpoint |
+| `METRICS_BIND` / `METRICS_PORT`     | `127.0.0.1` / `9102` | Prometheus `GET /metrics`; `0` disables. No token, so keep it on loopback (or a private interface) and never behind the public proxy |
 | `DISCORD_APPLICATION_ID` / `DISCORD_GUILD_ID` | — | Application id and the server the `/voice` commands are registered in |
 | `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
 | `DISCORD_PUBLIC_KEY`                | —         | Application public key every interaction is verified against |
@@ -150,6 +151,26 @@ To build:
 
 Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
 in SQLite and under `VOICE_REPORT_DIR` either way.
+
+#### Metrics
+
+`/metrics` exposes sessions, auth, control and UDP traffic, routing outcomes, upstream APIs,
+Discord, moderation, SQLite timings and the JVM in Prometheus text format, all prefixed `voice_`.
+No label ever carries a player identity; world names are whitelisted to `WC<n>` and anything else
+is `other`. A Prometheus on the same host scrapes it with:
+
+```yaml
+scrape_configs:
+  - job_name: wynnvoice
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["127.0.0.1:9102"]
+```
+
+Unique-player questions (daily/weekly actives, retention) come from the `voice_sessions` table
+in `DB_PATH` instead, e.g. with Grafana's SQLite datasource:
+`SELECT date(started_at / 1000, 'unixepoch') AS day, count(DISTINCT uuid) FROM voice_sessions GROUP BY 1`.
+Rows older than 90 days are pruned automatically.
 
 #### Discord application setup
 

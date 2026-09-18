@@ -21,7 +21,11 @@ data class VoiceParticipant(
     val guildMembers: Set<String>,
 )
 
-class VoiceRecipients(val group: List<VoiceParticipant>, val proximity: List<VoiceParticipant>)
+/** Why a candidate did or did not get the speaker's audio, in the order the checks run. */
+enum class RouteOutcome { SELF, BLOCKED, GROUP, TIER_DENIED, WORLD_MISMATCH, INSTANCE_MISMATCH, POSITION_UNKNOWN, OUT_OF_RANGE, PROXIMITY }
+
+/** [outcomes] is indexed by [RouteOutcome.ordinal]: how many candidates ended up in each bucket. */
+class VoiceRecipients(val group: List<VoiceParticipant>, val proximity: List<VoiceParticipant>, val outcomes: IntArray)
 
 /**
  * Decides who hears a speaker. Pure: no I/O, no session state.
@@ -32,18 +36,30 @@ class VoiceRouter(private val range: Double, private val isBlocked: (UUID, UUID)
         val distance = if (whispering) range / 2 else range
         val group = ArrayList<VoiceParticipant>()
         val proximity = ArrayList<VoiceParticipant>()
+        val outcomes = IntArray(RouteOutcome.entries.size)
 
         for (candidate in candidates) {
-            if (candidate.uuid == speaker.uuid || isBlocked(speaker.uuid, candidate.uuid)) continue
-            if (isMutualParty(speaker, candidate)) {
-                group.add(candidate)
-                continue
+            val outcome = outcomeOf(speaker, candidate, distance)
+            outcomes[outcome.ordinal]++
+            when (outcome) {
+                RouteOutcome.GROUP -> group.add(candidate)
+                RouteOutcome.PROXIMITY -> proximity.add(candidate)
+                else -> Unit
             }
-            if (!admits(speaker, candidate) || !admits(candidate, speaker)) continue
-            if (!sameInstance(speaker, candidate)) continue
-            if (withinRange(speaker, candidate, distance)) proximity.add(candidate)
         }
-        return VoiceRecipients(group, proximity)
+        return VoiceRecipients(group, proximity, outcomes)
+    }
+
+    private fun outcomeOf(speaker: VoiceParticipant, candidate: VoiceParticipant, distance: Double): RouteOutcome = when {
+        candidate.uuid == speaker.uuid -> RouteOutcome.SELF
+        isBlocked(speaker.uuid, candidate.uuid) -> RouteOutcome.BLOCKED
+        isMutualParty(speaker, candidate) -> RouteOutcome.GROUP
+        !admits(speaker, candidate) || !admits(candidate, speaker) -> RouteOutcome.TIER_DENIED
+        speaker.world == null || speaker.world != candidate.world -> RouteOutcome.WORLD_MISMATCH
+        speaker.instance != candidate.instance -> RouteOutcome.INSTANCE_MISMATCH
+        speaker.position == null || candidate.position == null -> RouteOutcome.POSITION_UNKNOWN
+        !withinRange(speaker, candidate, distance) -> RouteOutcome.OUT_OF_RANGE
+        else -> RouteOutcome.PROXIMITY
     }
 
     /** Whether two users could ever hear each other, ignoring distance: mutual party, or mutual admission. */
@@ -65,9 +81,6 @@ class VoiceRouter(private val range: Double, private val isBlocked: (UUID, UUID)
         VoiceTier.FRIENDS_AND_GUILD -> relation(listener, other) != Relation.NONE
         VoiceTier.EVERYONE -> true
     }
-
-    private fun sameInstance(a: VoiceParticipant, b: VoiceParticipant) =
-        a.world != null && a.world == b.world && a.instance == b.instance
 
     private fun withinRange(a: VoiceParticipant, b: VoiceParticipant, distance: Double): Boolean {
         val pa = a.position ?: return false

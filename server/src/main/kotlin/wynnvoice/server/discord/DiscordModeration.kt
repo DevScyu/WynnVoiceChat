@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
+import wynnvoice.server.Metrics
+import wynnvoice.server.Metrics.counters
 import wynnvoice.server.voice.FiledReport
 import wynnvoice.server.voice.VoiceManager
 
@@ -81,7 +83,18 @@ class DiscordModeration(
 
     private class Moderator(val id: String, val name: String)
 
+    enum class Kind { PING, BAN_BUTTON, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, UNKNOWN }
+    enum class Outcome { OK, BAD_SIGNATURE, UNAUTHORIZED, ERROR }
+    enum class BanAction { BAN, UNBAN, DISMISS }
+    enum class BanSource { BUTTON, COMMAND }
+    enum class Operation { POST_REPORT, REGISTER_COMMANDS }
+    enum class RequestOutcome { OK, ERROR }
+
     companion object {
+        private val interactions = Metrics.registry.counters<Kind, Outcome>("voice_discord_interactions_total", "kind", "outcome")
+        private val requests = Metrics.registry.counters<Operation, RequestOutcome>("voice_discord_requests_total", "operation", "outcome")
+        private val bans = Metrics.registry.counters<BanAction, BanSource>("voice_bans_total", "action", "source")
+
         private const val PING = 1
         private const val APPLICATION_COMMAND = 2
         private const val MESSAGE_COMPONENT = 3
@@ -122,7 +135,10 @@ class DiscordModeration(
         val headers = it.requestHeaders
         val (status, response) = when {
             it.requestMethod != "POST" -> 405 to ""
-            !verifier.verify(headers.getFirst("X-Signature-Ed25519"), headers.getFirst("X-Signature-Timestamp"), body) -> 401 to ""
+            !verifier.verify(headers.getFirst("X-Signature-Ed25519"), headers.getFirst("X-Signature-Timestamp"), body) -> {
+                interactions.getValue(Kind.UNKNOWN).getValue(Outcome.BAD_SIGNATURE).increment()
+                401 to ""
+            }
             else -> 200 to handle(String(body))
         }
         val bytes = response.toByteArray()
@@ -132,29 +148,59 @@ class DiscordModeration(
     }
 
     /** Interaction JSON in, interaction response JSON out. Only call after the signature has been verified. */
-    fun handle(interactionJson: String): String = gson.toJson(
-        try {
-            respond(JsonParser.parseString(interactionJson).asJsonObject)
+    fun handle(interactionJson: String): String {
+        var kind = Kind.UNKNOWN
+        val response = try {
+            val interaction = JsonParser.parseString(interactionJson).asJsonObject
+            kind = kindOf(interaction)
+            respond(interaction, kind)
         } catch (e: Exception) {
             logger.error("Discord interaction failed", e)
-            ephemeral("Something went wrong, check the relay log.")
+            counted(kind, Outcome.ERROR, ephemeral("Something went wrong, check the relay log."))
         }
-    )
+        return gson.toJson(response)
+    }
 
-    private fun respond(interaction: JsonObject): Map<String, Any?> {
+    private fun counted(kind: Kind, outcome: Outcome, response: Map<String, Any?>): Map<String, Any?> =
+        response.also { interactions.getValue(kind).getValue(outcome).increment() }
+
+    private fun kindOf(interaction: JsonObject): Kind {
+        val data = interaction.getAsJsonObject("data")
+        return when (interaction["type"].asInt) {
+            PING -> Kind.PING
+            MESSAGE_COMPONENT -> when (data?.get("custom_id")?.asString?.substringBefore(':')) {
+                "ban" -> Kind.BAN_BUTTON
+                "dismiss" -> Kind.DISMISS_BUTTON
+                else -> Kind.UNKNOWN
+            }
+            APPLICATION_COMMAND -> when (data?.getAsJsonArray("options")?.firstOrNull()?.asJsonObject?.get("name")?.asString) {
+                "ban" -> Kind.CMD_BAN
+                "unban" -> Kind.CMD_UNBAN
+                "bans" -> Kind.CMD_BANS
+                "blocks" -> Kind.CMD_BLOCKS
+                else -> Kind.UNKNOWN
+            }
+            else -> Kind.UNKNOWN
+        }
+    }
+
+    private fun respond(interaction: JsonObject, kind: Kind): Map<String, Any?> {
         val type = interaction["type"].asInt
-        if (type == PING) return mapOf("type" to PONG)
-        val member = interaction.getAsJsonObject("member") ?: return ephemeral("Use this in the server.")
+        if (type == PING) return counted(kind, Outcome.OK, mapOf("type" to PONG))
+        val member = interaction.getAsJsonObject("member") ?: return counted(kind, Outcome.UNAUTHORIZED, ephemeral("Use this in the server."))
         val roles = member.getAsJsonArray("roles")?.map { it.asString } ?: emptyList()
-        if (config.modRoleId !in roles) return ephemeral("You need the moderator role to do that.")
+        if (config.modRoleId !in roles) {
+            logger.info("Discord interaction {} refused: user {} lacks the moderator role", kind, member.getAsJsonObject("user")?.get("id")?.asString)
+            return counted(kind, Outcome.UNAUTHORIZED, ephemeral("You need the moderator role to do that."))
+        }
         val user = member.getAsJsonObject("user")
         val moderator = Moderator(user["id"].asString, user["username"].asString)
         val data = interaction.getAsJsonObject("data")
-        return when (type) {
+        return counted(kind, Outcome.OK, when (type) {
             APPLICATION_COMMAND -> command(data, moderator)
             MESSAGE_COMPONENT -> button(data["custom_id"].asString, moderator)
             else -> ephemeral("Unsupported interaction.")
-        }
+        })
     }
 
     private fun button(customId: String, moderator: Moderator): Map<String, Any?> {
@@ -165,9 +211,13 @@ class DiscordModeration(
             "ban" -> {
                 val days = parts[1].toInt()
                 ban(target, days, "Report #$reportId", moderator)
+                bans.getValue(BanAction.BAN).getValue(BanSource.BUTTON).increment()
                 "Banned ${duration(days)}"
             }
-            "dismiss" -> "Dismissed"
+            "dismiss" -> {
+                bans.getValue(BanAction.DISMISS).getValue(BanSource.BUTTON).increment()
+                "Dismissed"
+            }
             else -> return ephemeral("Unknown button.")
         }
         moderation.markHandled(reportId, moderator.name)
@@ -183,12 +233,16 @@ class DiscordModeration(
             "ban" -> resolving(player) { uuid ->
                 val days = args["days"]?.asInt ?: 0
                 ban(uuid, days, args["reason"]?.asString ?: "", moderator)
+                bans.getValue(BanAction.BAN).getValue(BanSource.COMMAND).increment()
                 logger.info("{} banned {} {}", moderator.name, player, duration(days))
                 ephemeral("Banned $player ${duration(days)}.")
             }
             "unban" -> resolving(player) { uuid ->
                 val lifted = moderation.unban(uuid) > 0
-                if (lifted) logger.info("{} unbanned {}", moderator.name, player)
+                if (lifted) {
+                    bans.getValue(BanAction.UNBAN).getValue(BanSource.COMMAND).increment()
+                    logger.info("{} unbanned {}", moderator.name, player)
+                }
                 ephemeral(if (lifted) "Unbanned $player." else "$player is not banned.")
             }
             "bans" -> ephemeral(listing("No active bans.", moderation.activeBanRows().map { ban ->
@@ -265,7 +319,10 @@ class DiscordModeration(
         val multipart = Multipart(gson.toJson(payload), files)
         return CompletableFuture.supplyAsync(multipart::encode)
             .thenCompose { rest.send("POST", "/channels/${config.reportChannelId}/messages", multipart.contentType, it) }
-            .whenComplete { _, error -> if (error != null) logger.warn("Posting report #{} to Discord failed: {}", report.id, error.message) }
+            .whenComplete { _, error ->
+                requests.getValue(Operation.POST_REPORT).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
+                if (error != null) logger.warn("Posting report #{} to Discord failed: {}", report.id, error.message)
+            }
     }
 
     private fun registerCommands() {
@@ -291,6 +348,7 @@ class DiscordModeration(
         )
         rest.send("PUT", "/applications/${config.applicationId}/guilds/${config.guildId}/commands", "application/json", gson.toJson(commands).toByteArray())
             .whenComplete { _, error ->
+                requests.getValue(Operation.REGISTER_COMMANDS).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
                 if (error != null) logger.warn("Registering Discord commands failed: {}", error.message)
                 else logger.info("Registered /voice commands in guild {}", config.guildId)
             }

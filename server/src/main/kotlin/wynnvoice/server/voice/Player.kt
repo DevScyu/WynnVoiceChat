@@ -9,7 +9,7 @@ import wynnvoice.protocol.SocialKind
 /**
  * One authenticated control connection's game state, written by the TCP handler and read by routing.
  */
-class Player(val uuid: UUID, val name: String, val send: (Packet) -> Unit) {
+class Player(val uuid: UUID, val name: String, val modVersion: String = "other", val send: (Packet) -> Unit) {
     @Volatile var world: String? = null
     @Volatile var position: Position? = null
     @Volatile var party: Set<String> = emptySet()
