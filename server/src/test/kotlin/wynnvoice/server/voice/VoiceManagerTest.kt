@@ -19,11 +19,16 @@ import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import wynnvoice.protocol.CallAction
+import wynnvoice.protocol.CallStateKind
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
+import wynnvoice.protocol.Packet.CallState
 import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.Relation
 import wynnvoice.protocol.ResultKind
+import wynnvoice.protocol.SocialAction
+import wynnvoice.protocol.SocialKind
 import wynnvoice.protocol.VoiceTier
 import wynnvoice.server.ApiFetcher
 import wynnvoice.server.MetricsTest
@@ -618,6 +623,185 @@ class VoiceManagerTest {
         manager.leave(a)
         manager.report(a, "S", "gone")
         assertFalse(last<Packet.Result>(a).ok, "reporter must be on voice")
+    }
+
+    // --- calls ---
+
+    private fun friends(vararg names: String): List<Player> {
+        val all = names.map { player(it, world = "WC${it.hashCode() % 7 + 1}") }
+        all.forEach { p -> p.friends = names.filter { it != p.name }.toSet() }
+        return all
+    }
+
+    private fun call(from: Player, action: CallAction, target: String = "") = manager.call(from, target, action)
+
+    private fun refusal(from: Player, message: String) = assertEquals(Packet.Result(ResultKind.CALL, false, message), last<Packet.Result>(from))
+
+    @Test
+    fun `invite needs both on voice, mutual friends, no party, no block, both free and the target not in dnd`() {
+        val (a, b, c) = friends("A", "B", "C")
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "You are not on voice chat")
+        val secretA = connect(a, addrA, tier = VoiceTier.PARTY)
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "B is not on voice chat")
+        call(a, CallAction.INVITE, "a")
+        refusal(a, "You cannot call yourself")
+        val secretB = connect(b, addrB, tier = VoiceTier.PARTY)
+        connect(c, addrC, tier = VoiceTier.PARTY)
+
+        b.friends = setOf("C")
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "You can only call mutual friends")
+        b.friends = setOf("A", "C")
+
+        a.party = setOf("X")
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "Leave your party first")
+        a.party = emptySet()
+        b.party = setOf("X")
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "B is in a party")
+        b.party = emptySet()
+
+        moderation.block(b.uuid, a.uuid)
+        call(a, CallAction.INVITE, "B")
+        refusal(a, "You cannot call B")
+        moderation.unblock(b.uuid, a.uuid)
+
+        manager.update(b, VoiceTier.PARTY, "", disabled = false, dnd = true)
+        call(a, CallAction.INVITE, "B")
+        assertEquals(CallState("B", CallStateKind.DND), last<CallState>(a))
+        assertTrue(sentTo(b).none { it is CallState }, "the callee is not told about calls dnd suppressed")
+        manager.update(b, VoiceTier.PARTY, "", disabled = false, dnd = false)
+
+        call(a, CallAction.INVITE, "b")
+        assertEquals(CallState("B", CallStateKind.RINGING), last<CallState>(a))
+        assertEquals(CallState("A", CallStateKind.INCOMING), last<CallState>(b))
+        call(a, CallAction.INVITE, "C")
+        refusal(a, "Hang up or answer your current call first")
+        call(b, CallAction.INVITE, "C")
+        refusal(b, "Hang up or answer your current call first")
+        call(c, CallAction.INVITE, "B")
+        assertEquals(CallState("B", CallStateKind.BUSY), last<CallState>(c))
+        call(c, CallAction.INVITE, "A")
+        assertEquals(CallState("A", CallStateKind.BUSY), last<CallState>(c))
+        assertEquals(1.0, sample("voice_calls_total{outcome=\"invited\"}"))
+        assertEquals(2.0, sample("voice_calls_total{outcome=\"busy\"}"))
+        assertEquals(1.0, sample("voice_calls_total{outcome=\"dnd\"}"))
+        assertEquals(9.0, sample("voice_calls_total{outcome=\"refused\"}"))
+
+        call(b, CallAction.ACCEPT)
+        assertEquals(CallState("B", CallStateKind.ACTIVE), last<CallState>(a))
+        assertEquals(CallState("A", CallStateKind.ACTIVE), last<CallState>(b))
+        assertEquals(b, manager.sessionOf(a.uuid)!!.callPeer)
+        assertEquals(a, manager.sessionOf(b.uuid)!!.callPeer)
+        call(c, CallAction.INVITE, "A")
+        assertEquals(CallState("A", CallStateKind.BUSY), last<CallState>(c))
+
+        mic(a, addrA, secretA)
+        assertEquals(listOf(addrB), transport.sent.map { it.first }, "call audio crosses worlds as group sound")
+        assertEquals(0x3, typeOf(secretB, transport.sent.single().second))
+        assertEquals(1.0, sample("voice_route_candidates_total{outcome=\"call\"}"))
+        manager.syncPeers()
+        val peer = last<Packet.Peers>(a).peers.single { it.uuid == b.uuid }
+        assertEquals(Relation.FRIEND, peer.relation)
+        assertTrue(peer.reachable)
+
+        call(a, CallAction.HANGUP)
+        assertEquals(CallState("B", CallStateKind.ENDED), last<CallState>(a))
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b))
+        assertNull(manager.sessionOf(a.uuid)!!.callPeer)
+        assertNull(manager.sessionOf(b.uuid)!!.callPeer)
+        call(a, CallAction.HANGUP)
+        refusal(a, "You are not in a call")
+        call(b, CallAction.ACCEPT)
+        refusal(b, "Nobody is calling you")
+        assertEquals(1.0, sample("voice_calls_total{outcome=\"ended\"}"))
+    }
+
+    @Test
+    fun `decline, expiry and a hangup while ringing end the invite`() {
+        val (a, b) = friends("A", "B")
+        val secretA = connect(a, addrA, tier = VoiceTier.PARTY)
+        val secretB = connect(b, addrB, tier = VoiceTier.PARTY)
+        fun keepAlive() {
+            manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.KeepAlive))
+            manager.onDatagram(addrB, clientDatagram(b, secretB, SvcPacket.KeepAlive))
+        }
+
+        call(a, CallAction.INVITE, "B")
+        call(b, CallAction.DECLINE)
+        assertEquals(CallState("B", CallStateKind.DECLINED), last<CallState>(a))
+        call(b, CallAction.DECLINE)
+        refusal(b, "Nobody is calling you")
+
+        call(a, CallAction.INVITE, "B")
+        now += 29_999
+        keepAlive()
+        manager.tick()
+        assertEquals(CallState("B", CallStateKind.RINGING), last<CallState>(a))
+        now += 1
+        keepAlive()
+        manager.tick()
+        assertEquals(CallState("B", CallStateKind.NO_ANSWER), last<CallState>(a))
+        call(b, CallAction.ACCEPT)
+        refusal(b, "Nobody is calling you")
+
+        call(a, CallAction.INVITE, "B")
+        call(a, CallAction.HANGUP)
+        assertEquals(CallState("B", CallStateKind.ENDED), last<CallState>(a))
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b))
+        call(b, CallAction.ACCEPT)
+        refusal(b, "Nobody is calling you")
+        assertEquals(1.0, sample("voice_calls_total{outcome=\"declined\"}"))
+        assertEquals(1.0, sample("voice_calls_total{outcome=\"no_answer\"}"))
+    }
+
+    @Test
+    fun `a call ends when either side leaves voice, joins a party or blocks the other`() {
+        val (a, b) = friends("A", "B")
+        fun activeCall() {
+            connect(a, addrA, tier = VoiceTier.PARTY)
+            connect(b, addrB, tier = VoiceTier.PARTY)
+            call(a, CallAction.INVITE, "B")
+            call(b, CallAction.ACCEPT)
+            assertEquals(CallState("A", CallStateKind.ACTIVE), last<CallState>(b))
+        }
+
+        activeCall()
+        manager.leave(a)
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b))
+        assertNull(manager.sessionOf(b.uuid)!!.callPeer)
+
+        activeCall()
+        manager.social(b, Packet.Social(SocialKind.PARTY, SocialAction.ADD, listOf("X")))
+        assertEquals(CallState("B", CallStateKind.ENDED), last<CallState>(a))
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b))
+        assertEquals(setOf("X"), b.party)
+        manager.social(b, Packet.Social(SocialKind.PARTY, SocialAction.SET, emptyList()))
+
+        activeCall()
+        manager.block(a, "B", blocked = true)
+        assertEquals(CallState("B", CallStateKind.ENDED), sentTo(a).filterIsInstance<CallState>().last())
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b))
+        moderation.unblock(a.uuid, b.uuid)
+
+        activeCall()
+        now += 60_000
+        manager.tick()
+        assertNull(manager.sessionOf(a.uuid))
+        assertTrue(sentTo(a).any { it == CallState("B", CallStateKind.ENDED) })
+        assertTrue(sentTo(b).any { it == CallState("A", CallStateKind.ENDED) })
+
+        connect(a, addrA, tier = VoiceTier.PARTY)
+        connect(b, addrB, tier = VoiceTier.PARTY)
+        call(a, CallAction.INVITE, "B")
+        manager.social(a, Packet.Social(SocialKind.PARTY, SocialAction.SET, listOf("X")))
+        assertEquals(CallState("A", CallStateKind.ENDED), last<CallState>(b), "a pending invite is withdrawn too")
+        call(b, CallAction.ACCEPT)
+        refusal(b, "Nobody is calling you")
+        assertEquals(5.0, sample("voice_calls_total{outcome=\"ended\"}"))
     }
 
     // --- abuse ---

@@ -17,7 +17,9 @@ import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
@@ -36,6 +38,7 @@ import wynnvoice.mod.wynn.IgnoreTracker;
 import wynnvoice.mod.wynn.PartyTracker;
 import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
+import wynnvoice.protocol.CallStateKind;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.SocialKind;
@@ -213,6 +216,16 @@ public final class VoiceMod implements ClientModInitializer {
         if (session != null) session.setGuildChannel(config.effectiveGuildChannel());
     }
 
+    public void setDnd(boolean on) {
+        config.dnd = on;
+        saveConfig();
+        if (session != null) session.setDnd(on);
+    }
+
+    public boolean dnd() {
+        return config.dnd;
+    }
+
     public boolean request(Packet packet) {
         return session != null && session.request(packet);
     }
@@ -253,6 +266,7 @@ public final class VoiceMod implements ClientModInitializer {
         VoiceSession newSession = new VoiceSession(config.effectiveTier(), new Effects(minecraft));
         newSession.setSvcDisabled(svcDisabled);
         newSession.setGuildChannel(config.effectiveGuildChannel());
+        newSession.setDnd(config.dnd);
         VoiceClient[] self = new VoiceClient[1];
         self[0] = client = new VoiceClient(identity, joiner, new VoiceClient.Listener() {
             @Override
@@ -430,8 +444,32 @@ public final class VoiceMod implements ClientModInitializer {
         @Override
         public void injectGroup(UUID group) {
             // ponytail: the guild group is named "Guild", not after the prefix; the relay never tells the mod which guild it is in
-            if (group != null) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, group, group.equals(VoiceSession.PARTY_GROUP) ? "Party" : "Guild"));
+            if (group != null) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, group, groupName(group)));
             VoiceChatBridge.inject(VoiceChatPayloads.JOINED_GROUP, buf -> VoiceChatPayloads.writeJoinedGroup(buf, group));
+        }
+
+        private static String groupName(UUID group) {
+            if (group.equals(VoiceSession.PARTY_GROUP)) return "Party";
+            return group.equals(VoiceSession.CALL_GROUP) ? "Call" : "Guild";
+        }
+
+        @Override
+        public void callState(Packet.CallState state) {
+            String key = "wynnvoice.call." + state.state().name().toLowerCase(Locale.ROOT);
+            MutableComponent line = Component.translatable(key, state.peerName());
+            if (state.state() == CallStateKind.INCOMING) {
+                line.append(" ").append(button("wynnvoice.call.accept", COMMAND + " accept", ChatFormatting.GREEN))
+                        .append(" ").append(button("wynnvoice.call.decline", COMMAND + " decline", ChatFormatting.RED));
+            }
+            VoiceMod.chat(line, switch (state.state()) {
+                case INCOMING, ACTIVE -> ChatFormatting.GREEN;
+                case RINGING, ENDED -> ChatFormatting.GRAY;
+                default -> ChatFormatting.YELLOW;
+            });
+        }
+
+        private static Component button(String key, String command, ChatFormatting colour) {
+            return Component.translatable(key).withStyle(style -> style.withColor(colour).withClickEvent(new ClickEvent.RunCommand(command)));
         }
     }
 }

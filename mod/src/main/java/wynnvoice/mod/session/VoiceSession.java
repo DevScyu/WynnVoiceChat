@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import wynnvoice.mod.svc.VoiceChatPayloads;
+import wynnvoice.protocol.CallStateKind;
 import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
@@ -51,12 +52,16 @@ public final class VoiceSession {
 
         Set<String> friends();
 
-        /** Put us in the read-only SVC group mirroring the party or guild channel, or in none. */
+        /** Put us in the read-only SVC group mirroring the party, call or guild channel, or in none. */
         void injectGroup(UUID group);
+
+        /** A friend call progressed; say so, with accept/decline controls for an incoming one. */
+        void callState(Packet.CallState state);
     }
 
     public static final UUID PARTY_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000001");
     public static final UUID GUILD_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000002");
+    public static final UUID CALL_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000003");
 
     private final Effects effects;
     private VoiceTier tier;
@@ -64,6 +69,8 @@ public final class VoiceSession {
     private volatile boolean active;
     private UUID group;
     private boolean guildChannel;
+    private boolean dnd;
+    private String callPeer;
     private String instance = "";
     private String joinedInstance = "";
     private VoiceTier joinedTier;
@@ -91,6 +98,12 @@ public final class VoiceSession {
         pushUpdate();
         placeGroup();
         syncStates();
+    }
+
+    public void setDnd(boolean dnd) {
+        if (dnd == this.dnd) return;
+        this.dnd = dnd;
+        pushUpdate();
     }
 
     public boolean isActive() {
@@ -140,8 +153,9 @@ public final class VoiceSession {
                 lastPeers = List.of();
                 peersAnnounced = false;
                 group = null;
+                callPeer = null;
                 effects.injectSecret(secret);
-                if (svcDisabled || guildChannel || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
+                if (svcDisabled || guildChannel || dnd || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Result result -> {
@@ -150,6 +164,13 @@ public final class VoiceSession {
                 if (result.ok() && target != null) effects.ignore(target, result.kind() == ResultKind.BLOCK);
             }
             case Packet.BlockListResult blocks -> effects.blockList(blocks.names());
+            case Packet.CallState state -> {
+                effects.callState(state);
+                if (state.state() == CallStateKind.ACTIVE) callPeer = state.peerName();
+                else if (state.state() == CallStateKind.ENDED) callPeer = null;
+                placeGroup();
+                syncStates();
+            }
             case Packet.Peers peers -> {
                 lastPeers = peers.peers();
                 if (!peersAnnounced) {
@@ -200,20 +221,20 @@ public final class VoiceSession {
 
     private void pushUpdate() {
         if (!active) return;
-        effects.send(new Packet.Update(tier, instance, svcDisabled, guildChannel, false));
+        effects.send(new Packet.Update(tier, instance, svcDisabled, guildChannel, dnd));
     }
 
-    /** One SVC group at a time: the party while any party peer is listed, else the guild channel while any member can hear us. */
+    /** One SVC group at a time: the party while any party peer is listed, else a call, else the guild channel while any member can hear us. */
     private void placeGroup() {
         if (!active) return;
-        UUID next = null;
+        UUID next = callPeer == null ? null : CALL_GROUP;
         for (Peer peer : lastPeers) {
-            UUID candidate = groupOf(peer, guildChannel);
+            UUID candidate = groupOf(peer, guildChannel, callPeer);
             if (candidate == PARTY_GROUP) {
                 next = PARTY_GROUP;
                 break;
             }
-            if (candidate != null) next = candidate;
+            if (candidate != null && next == null) next = candidate;
         }
         if (next == group) return;
         group = next;
@@ -223,19 +244,20 @@ public final class VoiceSession {
     /** SVC draws nothing for players it has no state for, so non-voice players get an explicit "disconnected" state. */
     public void syncStates() {
         if (!active) return;
-        effects.injectStates(buildStates(lastPeers, effects.otherPlayers(), guildChannel));
+        effects.injectStates(buildStates(lastPeers, effects.otherPlayers(), guildChannel, callPeer));
     }
 
     // ponytail: guild peers who left the channel but stay reachable nearby still show in the group; the protocol has no channel flag
-    static UUID groupOf(Peer peer, boolean guildChannel) {
+    static UUID groupOf(Peer peer, boolean guildChannel, String callPeer) {
         if (peer.relation() == Relation.PARTY) return PARTY_GROUP;
+        if (peer.name().equals(callPeer)) return CALL_GROUP;
         return guildChannel && peer.relation() == Relation.GUILD && peer.reachable() ? GUILD_GROUP : null;
     }
 
-    public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others, boolean guildChannel) {
+    public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others, boolean guildChannel, String callPeer) {
         List<VoiceChatPayloads.State> states = new ArrayList<>(peers.size() + others.size());
         for (Peer peer : peers) {
-            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, groupOf(peer, guildChannel)));
+            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, groupOf(peer, guildChannel, callPeer)));
         }
         for (Map.Entry<UUID, String> other : others.entrySet()) {
             UUID uuid = other.getKey();

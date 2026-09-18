@@ -74,4 +74,9 @@ public sealed interface Packet {
 
     /** Mute or unmute a fellow guild member in the guild channel; {@code hours} 0 means until unmuted. */
     record GuildMute(String targetName, boolean muted, int hours) implements Packet {}
+
+    /** Friend call control; {@code targetName} only matters for {@code INVITE}. */
+    record Call(String targetName, CallAction action) implements Packet {}
+
+    record CallState(String peerName, CallStateKind state) implements Packet {}
 }

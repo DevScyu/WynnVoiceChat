@@ -31,6 +31,8 @@ public final class VoiceConfig {
     /** Hear and be heard by guild members anywhere, unless in a party. */
     public boolean guildChannel;
     public boolean guildWarningAccepted;
+    /** Refuse incoming friend calls. */
+    public boolean dnd;
     private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {

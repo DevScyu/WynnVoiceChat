@@ -272,7 +272,8 @@ Minecraft directory, created on first launch:
   "everyoneWarningAccepted": false,
   "blockAlsoIgnores": true,
   "guildChannel": false,
-  "guildWarningAccepted": false
+  "guildWarningAccepted": false,
+  "dnd": false
 }
 ```
 
@@ -294,6 +295,10 @@ them can hear you (nothing is printed when nobody is).
 | `/wynnvoice guild <on\|off>`                              | Hear and be heard by guild members anywhere (shows the guild channel notice once) |
 | `/wynnvoice guild mute <player> [hours]`                  | Guild owner and chiefs: silence a member in the guild channel, for good or for `hours` |
 | `/wynnvoice guild unmute <player>`                        | Lift a guild channel mute                                 |
+| `/wynnvoice call <player>`                                | Call a mutual friend who is on voice; they get a chat line with accept and decline buttons |
+| `/wynnvoice accept` / `decline`                           | Answer an incoming call                                   |
+| `/wynnvoice hangup`                                       | End the call, or withdraw one that is still ringing       |
+| `/wynnvoice dnd <on\|off>`                                | Do not disturb: refuse incoming calls; shown in `/wynnvoice who` |
 | `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
 | `/wynnvoice unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
 | `/wynnvoice report <player> [reason]`                     | Report someone you heard in the last two minutes          |
@@ -316,6 +321,12 @@ a party, which takes precedence. Turning it on shows a notice once (`guildWarnin
 you accept it the relay is told the channel is off. Your guild's owner and chiefs, as reported by
 the Wynncraft API, can mute a member in the channel: a muted member still hears the channel and is
 still heard nearby, but not in the channel. Blocks win over all of this.
+
+A call (`/wynnvoice call <player>`) is a private two-person channel with a mutual friend on any
+world, shown as a read-only "Call" group in Simple Voice Chat. Both of you must be on voice and out
+of any party; an invite rings for 30 seconds, one at a time, and is refused when the other side is
+busy or has do-not-disturb on (`dnd`). The call ends when either hangs up, leaves voice, joins a
+party or blocks the other.
 
 Blocks are symmetric and permanent until lifted; the name is looked up among players on voice
 first, then on Mojang, so you can block someone who is offline. Once the relay confirms a block

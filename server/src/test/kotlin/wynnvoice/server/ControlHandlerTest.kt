@@ -10,6 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import wynnvoice.protocol.AuthStatus
+import wynnvoice.protocol.CallAction
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
@@ -235,7 +236,7 @@ class ControlHandlerTest {
         val ch = ready()
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.writeInbound(Packet.Position(1f, 2f, 3f))
-        ch.writeInbound(Packet.Update(VoiceTier.PARTY, "housing:X", true, true, false))
+        ch.writeInbound(Packet.Update(VoiceTier.PARTY, "housing:X", true, true, true))
         ch.writeInbound(Packet.World(""))
         val session = voice.sessionOf(uuid)!!
         assertEquals(Position(1f, 2f, 3f), session.player.position)
@@ -243,6 +244,7 @@ class ControlHandlerTest {
         assertEquals("housing:X", session.instance)
         assertTrue(session.disabled)
         assertTrue(session.guildChannel)
+        assertTrue(session.dnd)
         assertNull(session.player.world)
     }
 
@@ -281,6 +283,19 @@ class ControlHandlerTest {
         ch.writeInbound(Packet.GuildMute("Player", false, 0))
         assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Unmuted Player in the guild channel"), ch.readOutbound())
         assertFalse(moderation.isGuildMuted(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), uuid))
+    }
+
+    @Test
+    fun `call packets reach the manager and a hangup with no call is refused`() {
+        val ch = ready()
+        ch.writeInbound(Packet.Call("Friend", CallAction.INVITE))
+        assertEquals(Packet.Result(ResultKind.CALL, false, "You are not on voice chat"), ch.readOutbound())
+        ch.writeInbound(Packet.Join(VoiceTier.PARTY, ""))
+        ch.readOutbound<Packet.Secret>()
+        ch.writeInbound(Packet.Call("", CallAction.HANGUP))
+        assertEquals(Packet.Result(ResultKind.CALL, false, "You are not in a call"), ch.readOutbound())
+        ch.writeInbound(Packet.Call("", CallAction.ACCEPT))
+        assertEquals(Packet.Result(ResultKind.CALL, false, "Nobody is calling you"), ch.readOutbound())
     }
 
     @Test

@@ -26,7 +26,8 @@ class VoiceRouterTest {
         guild: Set<String> = emptySet(),
         disabled: Boolean = false,
         guildChannel: Boolean = false,
-    ) = VoiceParticipant(UUID.nameUUIDFromBytes(name.toByteArray()), name, world, instance, position, tier, disabled, party, friends, guild, guildId.takeIf { guild.isNotEmpty() }, guildChannel)
+        callPeer: String? = null,
+    ) = VoiceParticipant(UUID.nameUUIDFromBytes(name.toByteArray()), name, world, instance, position, tier, disabled, party, friends, guild, guildId.takeIf { guild.isNotEmpty() }, guildChannel, callPeer?.let { UUID.nameUUIDFromBytes(it.toByteArray()) })
 
     private fun guildmate(name: String, guildChannel: Boolean, tier: VoiceTier = VoiceTier.PARTY, world: String? = "WC7", position: Position? = Position(9999f, 0f, 9999f)) =
         participant(name, tier = tier, world = world, position = position, guild = setOf("Me", "Mate", "Other"), guildChannel = guildChannel)
@@ -167,6 +168,28 @@ class VoiceRouterTest {
 
         muted.clear()
         assertEquals(setOf("Mate", "Other"), names(router.route(me, listOf(far, near), whispering = false).guild).toSet())
+    }
+
+    @Test
+    fun `a call is group audio anywhere for both sides only, party first, blocks win`() {
+        val me = participant("Me", tier = VoiceTier.PARTY, callPeer = "Pal")
+        val pal = participant("Pal", tier = VoiceTier.PARTY, world = "WC7", position = Position(9999f, 0f, 9999f), callPeer = "Me")
+        val oneSided = participant("Other", tier = VoiceTier.PARTY, callPeer = "Me")
+        val r = router.route(me, listOf(pal, oneSided), whispering = false)
+        assertEquals(listOf("Pal"), names(r.call))
+        assertTrue(r.group.isEmpty() && r.guild.isEmpty() && r.proximity.isEmpty())
+        assertEquals(1, r.outcomes[RouteOutcome.CALL.ordinal])
+        assertEquals(1, r.outcomes[RouteOutcome.TIER_DENIED.ordinal])
+        assertTrue(router.canTalk(me, pal))
+        assertFalse(router.canTalk(me, oneSided))
+        assertEquals(listOf("Me"), names(router.route(pal, listOf(me), whispering = false).call))
+
+        val partied = router.route(me.copy(party = setOf("Pal")), listOf(pal.copy(party = setOf("Me"))), whispering = false)
+        assertEquals(listOf("Pal"), names(partied.group))
+        assertTrue(partied.call.isEmpty())
+
+        blocked.add(pal.uuid to me.uuid)
+        assertTrue(router.route(me, listOf(pal), whispering = false).call.isEmpty())
     }
 
     @Test

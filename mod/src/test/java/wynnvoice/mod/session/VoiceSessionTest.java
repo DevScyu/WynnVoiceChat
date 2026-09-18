@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import wynnvoice.mod.svc.VoiceChatPayloads;
+import wynnvoice.protocol.CallStateKind;
 import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
@@ -36,6 +37,7 @@ class VoiceSessionTest {
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
     private final List<UUID> groups = new ArrayList<>();
+    private final List<Packet.CallState> callStates = new ArrayList<>();
     private Set<String> party = Set.of();
     private Set<String> friends = Set.of();
 
@@ -98,6 +100,11 @@ class VoiceSessionTest {
         @Override
         public void injectGroup(UUID group) {
             groups.add(group);
+        }
+
+        @Override
+        public void callState(Packet.CallState state) {
+            callStates.add(state);
         }
     };
     private final VoiceSession session = new VoiceSession(VoiceTier.EVERYONE, effects);
@@ -342,6 +349,53 @@ class VoiceSessionTest {
         session.onPacket(SECRET);
         session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
         assertEquals(Arrays.asList(VoiceSession.PARTY_GROUP, null, VoiceSession.PARTY_GROUP, VoiceSession.PARTY_GROUP), groups, "a fresh SVC connection starts outside the group");
+    }
+
+    @Test
+    void dndIsSentInUpdatesOnceActive() {
+        session.setDnd(true);
+        assertTrue(sent.isEmpty());
+        session.onAuthenticated("WC1", "");
+        session.onPacket(SECRET);
+        assertEquals(new Packet.Update(VoiceTier.EVERYONE, "", false, false, true), sent.get(sent.size() - 1));
+        sent.clear();
+        session.setDnd(true);
+        assertTrue(sent.isEmpty(), "unchanged flag sends nothing");
+        session.setDnd(false);
+        assertEquals(List.of(new Packet.Update(VoiceTier.EVERYONE, "", false, false, false)), sent);
+    }
+
+    @Test
+    void anActiveCallPlacesThePeerInTheCallGroupUntilItEndsAndPartyWins() {
+        joined();
+        UUID friend = UUID.randomUUID();
+        Peer friendPeer = new Peer(friend, "F", false, Relation.FRIEND, true);
+        session.onPacket(new Packet.Peers(List.of(friendPeer)));
+        assertTrue(groups.isEmpty());
+
+        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        assertTrue(groups.isEmpty(), "ringing is not a call yet");
+        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
+        assertEquals(List.of(VoiceSession.CALL_GROUP), groups, "the group opens without waiting for peers");
+        assertEquals(new VoiceChatPayloads.State(friend, "F", false, false, VoiceSession.CALL_GROUP), injectedStates.get(injectedStates.size() - 1).get(0));
+        session.onPacket(new Packet.Peers(List.of(friendPeer, new Peer(UUID.randomUUID(), "P", false, Relation.PARTY, true))));
+        assertEquals(List.of(VoiceSession.CALL_GROUP, VoiceSession.PARTY_GROUP), groups, "party wins");
+
+        session.onPacket(new Packet.Peers(List.of(friendPeer)));
+        session.onPacket(new Packet.CallState("F", CallStateKind.ENDED));
+        assertEquals(Arrays.asList(VoiceSession.CALL_GROUP, VoiceSession.PARTY_GROUP, VoiceSession.CALL_GROUP, null), groups);
+        assertEquals(new VoiceChatPayloads.State(friend, "F", false, false, null), injectedStates.get(injectedStates.size() - 1).get(0));
+        assertEquals(List.of(
+                new Packet.CallState("F", CallStateKind.RINGING),
+                new Packet.CallState("F", CallStateKind.ACTIVE),
+                new Packet.CallState("F", CallStateKind.ENDED)), callStates);
+
+        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        session.onPacket(new Packet.Peers(List.of(friendPeer)));
+        assertEquals(VoiceSession.CALL_GROUP, groups.get(4));
+        assertEquals(5, groups.size(), "a fresh SVC connection forgets the call; the relay ended it");
     }
 
     @Test

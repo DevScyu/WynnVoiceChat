@@ -17,6 +17,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import wynnvoice.mod.VoiceMod;
 import wynnvoice.mod.session.VoiceRoster;
+import wynnvoice.protocol.CallAction;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.VoiceTier;
@@ -49,6 +50,14 @@ public final class VoiceCommand {
                                                 StringArgumentType.getString(context, "player"), true, IntegerArgumentType.getInteger(context, "hours")))))))
                         .then(literal("unmute").then(argument("player", StringArgumentType.word())
                                 .executes(context -> request(context, mod, new Packet.GuildMute(StringArgumentType.getString(context, "player"), false, 0))))))
+                .then(literal("call").then(argument("player", StringArgumentType.word())
+                        .executes(context -> request(context, mod, new Packet.Call(StringArgumentType.getString(context, "player"), CallAction.INVITE)))))
+                .then(literal("accept").executes(context -> request(context, mod, new Packet.Call("", CallAction.ACCEPT))))
+                .then(literal("decline").executes(context -> request(context, mod, new Packet.Call("", CallAction.DECLINE))))
+                .then(literal("hangup").executes(context -> request(context, mod, new Packet.Call("", CallAction.HANGUP))))
+                .then(literal("dnd")
+                        .then(literal("on").executes(context -> setDnd(context, mod, true)))
+                        .then(literal("off").executes(context -> setDnd(context, mod, false))))
                 .then(literal("who").executes(context -> who(context, mod)))
                 .then(literal("blocks").executes(context -> request(context, mod, new Packet.BlockList())))
                 .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
@@ -77,6 +86,7 @@ public final class VoiceCommand {
             context.getSource().sendError(Component.translatable("wynnvoice.command.notConnected"));
             return 1;
         }
+        if (mod.dnd()) context.getSource().sendFeedback(Component.translatable("wynnvoice.who.dnd").withStyle(ChatFormatting.YELLOW));
         if (peers.isEmpty()) {
             context.getSource().sendFeedback(Component.translatable("wynnvoice.who.empty").withStyle(ChatFormatting.AQUA));
             return 1;
@@ -95,6 +105,12 @@ public final class VoiceCommand {
     private static int setGuildChannel(CommandContext<FabricClientCommandSource> context, VoiceMod mod, boolean on) {
         mod.setGuildChannel(on);
         context.getSource().sendFeedback(Component.translatable(on ? "wynnvoice.command.guildOn" : "wynnvoice.command.guildOff").withStyle(ChatFormatting.GREEN));
+        return 1;
+    }
+
+    private static int setDnd(CommandContext<FabricClientCommandSource> context, VoiceMod mod, boolean on) {
+        mod.setDnd(on);
+        context.getSource().sendFeedback(Component.translatable(on ? "wynnvoice.command.dndOn" : "wynnvoice.command.dndOff").withStyle(ChatFormatting.GREEN));
         return 1;
     }
 

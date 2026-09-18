@@ -58,12 +58,13 @@ class ControlHandler(
             is Packet.World -> onWorld(ctx, player, packet.world.ifEmpty { null })
             is Packet.Position -> player.position = packet
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
-            is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled, packet.guildChannel)
-            is Packet.Social -> player.apply(packet)
+            is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled, packet.guildChannel, packet.dnd)
+            is Packet.Social -> voice.social(player, packet)
             is Packet.Block -> voice.block(player, packet.targetName, packet.blocked)
             is Packet.BlockList -> voice.blockList(player)
             is Packet.Report -> voice.report(player, packet.targetName, packet.reason)
             is Packet.GuildMute -> voice.guildMute(player, packet.targetName, packet.muted, packet.hours)
+            is Packet.Call -> voice.call(player, packet.targetName, packet.action)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
     }
