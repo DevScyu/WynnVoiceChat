@@ -11,8 +11,8 @@ size are welcome: bug reports, feature ideas, docs and code.
 ## Getting started
 
 ```sh
-git clone https://github.com/OWNER/REPO.git
-cd REPO
+git clone https://github.com/DevScyu/WynnVoiceChat.git
+cd WynnVoiceChat
 ./gradlew build
 ```
 

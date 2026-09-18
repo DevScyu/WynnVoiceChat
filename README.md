@@ -16,9 +16,9 @@
     Proximity voice chat for Wynncraft, powered by Simple Voice Chat.
     <br />
     <br />
-    <a href="https://github.com/OWNER/REPO/issues/new?labels=bug">Report Bug</a>
+    <a href="https://github.com/DevScyu/WynnVoiceChat/issues/new?labels=bug">Report Bug</a>
     &middot;
-    <a href="https://github.com/OWNER/REPO/issues/new?labels=enhancement">Request Feature</a>
+    <a href="https://github.com/DevScyu/WynnVoiceChat/issues/new?labels=enhancement">Request Feature</a>
   </p>
 </div>
 
@@ -111,7 +111,7 @@ To build:
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/OWNER/REPO.git
+   git clone https://github.com/DevScyu/WynnVoiceChat.git
    ```
 2. Build everything
    ```sh
@@ -205,7 +205,7 @@ information.
 
 Discord: [https://discord.gg/QPCwpuA2b](https://discord.gg/QPCwpuA2b)
 
-Project link: [https://github.com/OWNER/REPO](https://github.com/OWNER/REPO)
+Project link: [https://github.com/DevScyu/WynnVoiceChat](https://github.com/DevScyu/WynnVoiceChat)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -221,16 +221,16 @@ Project link: [https://github.com/OWNER/REPO](https://github.com/OWNER/REPO)
 
 
 
-[contributors-shield]: https://img.shields.io/github/contributors/OWNER/REPO.svg?style=for-the-badge
-[contributors-url]: https://github.com/OWNER/REPO/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/OWNER/REPO.svg?style=for-the-badge
-[forks-url]: https://github.com/OWNER/REPO/network/members
-[stars-shield]: https://img.shields.io/github/stars/OWNER/REPO.svg?style=for-the-badge
-[stars-url]: https://github.com/OWNER/REPO/stargazers
-[issues-shield]: https://img.shields.io/github/issues/OWNER/REPO.svg?style=for-the-badge
-[issues-url]: https://github.com/OWNER/REPO/issues
-[license-shield]: https://img.shields.io/github/license/OWNER/REPO.svg?style=for-the-badge
-[license-url]: https://github.com/OWNER/REPO/blob/main/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/DevScyu/WynnVoiceChat.svg?style=for-the-badge
+[contributors-url]: https://github.com/DevScyu/WynnVoiceChat/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/DevScyu/WynnVoiceChat.svg?style=for-the-badge
+[forks-url]: https://github.com/DevScyu/WynnVoiceChat/network/members
+[stars-shield]: https://img.shields.io/github/stars/DevScyu/WynnVoiceChat.svg?style=for-the-badge
+[stars-url]: https://github.com/DevScyu/WynnVoiceChat/stargazers
+[issues-shield]: https://img.shields.io/github/issues/DevScyu/WynnVoiceChat.svg?style=for-the-badge
+[issues-url]: https://github.com/DevScyu/WynnVoiceChat/issues
+[license-shield]: https://img.shields.io/github/license/DevScyu/WynnVoiceChat.svg?style=for-the-badge
+[license-url]: https://github.com/DevScyu/WynnVoiceChat/blob/main/LICENSE
 [fabric-badge]: https://img.shields.io/badge/Fabric-1.21.11-DBD0B4?style=for-the-badge
 [fabric-url]: https://fabricmc.net/
 [fabric-api-url]: https://modrinth.com/mod/fabric-api
