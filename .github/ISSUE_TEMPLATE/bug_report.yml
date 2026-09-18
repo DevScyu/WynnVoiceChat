@@ -25,7 +25,7 @@ body:
       label: Steps to reproduce
       placeholder: |
         1. Join world...
-        2. Run /wynnvoice ...
+        2. Run /wynnvoicechat ...
         3. See ...
     validations:
       required: true
@@ -39,8 +39,8 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: WynnVoice, Simple Voice Chat, Fabric Loader and Minecraft versions
-      placeholder: e.g. WynnVoice 0.1.0, SVC 2.6.3, Fabric Loader 0.18.4, Minecraft 1.21.11
+      description: WynnVoiceChat, Simple Voice Chat, Fabric Loader and Minecraft versions
+      placeholder: e.g. WynnVoiceChat 0.1.0, SVC 2.6.3, Fabric Loader 0.18.4, Minecraft 1.21.11
     validations:
       required: true
   - type: textarea

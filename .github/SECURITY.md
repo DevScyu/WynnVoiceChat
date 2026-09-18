@@ -2,7 +2,7 @@
 
 ## Scope
 
-This policy covers the WynnVoice mod and relay server in this repository. Simple Voice Chat,
+This policy covers the WynnVoiceChat mod and relay server in this repository. Simple Voice Chat,
 Wynncraft and Mojang services are out of scope; report issues in those to their owners.
 
 ## Reporting a vulnerability

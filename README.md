@@ -10,7 +10,7 @@
 
 <br />
 <div align="center">
-<h3 align="center">WynnVoice</h3>
+<h3 align="center">WynnVoiceChat</h3>
 
   <p align="center">
     Proximity voice chat for Wynncraft, powered by Simple Voice Chat.
@@ -55,7 +55,7 @@
 ## About The Project
 
 Wynncraft runs no voice server, so installing Simple Voice Chat alone does nothing there.
-WynnVoice is a small Fabric client mod plus a relay server: the mod points your existing
+WynnVoiceChat is a small Fabric client mod plus a relay server: the mod points your existing
 Simple Voice Chat installation at the relay, and the relay routes audio between players on
 the same Wynncraft world.
 
@@ -67,7 +67,7 @@ the same Wynncraft world.
 * **No accounts.** The relay verifies you through Mojang's session server, the same way a
   Minecraft server does.
 
-WynnVoice does not replace Simple Voice Chat; you install both.
+WynnVoiceChat does not replace Simple Voice Chat; you install both.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -113,11 +113,11 @@ Three mods go into your `mods` folder:
 
 1. [Fabric API][fabric-api-url]
 2. [Simple Voice Chat][svc-url]
-3. The WynnVoice jar from [Modrinth][modrinth-url] or the
+3. The WynnVoiceChat jar from [Modrinth][modrinth-url] or the
    [releases page](https://github.com/DevScyu/WynnVoiceChat/releases)
 
-The mod talks to the public relay at `relay.wynnvoice.com` out of the box; `relayHost` in
-`config/wynnvoice.json` (see [Usage](#usage)) only needs changing to use a relay you run
+The mod talks to the public relay at `relay.wynnvoicechat.com` out of the box; `relayHost` in
+`config/wynnvoicechat.json` (see [Usage](#usage)) only needs changing to use a relay you run
 yourself. Join Wynncraft and accept the consent notice.
 
 To build the mod yourself instead:
@@ -147,12 +147,12 @@ The `Dockerfile` builds the same jar and runs it on a JRE 21 image; `/data` hold
 database and report audio:
 
 ```sh
-docker build -t wynnvoice-relay .
-docker run -d --name wynnvoice-relay \
+docker build -t wynnvoicechat-relay .
+docker run -d --name wynnvoicechat-relay \
   -p 9100:9100 -p 24454:24454/udp -p 127.0.0.1:9101:9101 \
-  -v wynnvoice-data:/data \
+  -v wynnvoicechat-data:/data \
   -e VOICE_ENABLED=true -e VOICE_HOST=voice.example.com \
-  wynnvoice-relay
+  wynnvoicechat-relay
 ```
 
 Open TCP `CONTROL_PORT` and UDP `VOICE_PORT` to the internet. `HTTP_PORT` only ever serves
@@ -220,7 +220,7 @@ is `other`. A Prometheus on the same host scrapes it with:
 
 ```yaml
 scrape_configs:
-  - job_name: wynnvoice
+  - job_name: wynnvoicechat
     scrape_interval: 15s
     static_configs:
       - targets: ["127.0.0.1:9102"]
@@ -260,12 +260,12 @@ the player's live session within a minute and refuses their next connection with
 
 ## Usage
 
-The mod only activates on `wynncraft.com`. It reads `config/wynnvoice.json` from your
+The mod only activates on `wynncraft.com`. It reads `config/wynnvoicechat.json` from your
 Minecraft directory, created on first launch:
 
 ```json
 {
-  "relayHost": "relay.wynnvoice.com",
+  "relayHost": "relay.wynnvoicechat.com",
   "relayPort": 9100,
   "enabled": true,
   "tier": "PARTY",
@@ -292,21 +292,22 @@ friend, gold guild, white stranger) and crossed out in red when you cannot hear 
 
 | Command                                                   | Effect                                                    |
 |-----------------------------------------------------------|-----------------------------------------------------------|
-| `/wynnvoice who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
-| `/wynnvoice blocks`                                       | List the players you have blocked                         |
-| `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
-| `/wynnvoice guild <on\|off>`                              | Hear and be heard by guild members anywhere (shows the guild channel notice once) |
-| `/wynnvoice guild mute <player> [hours]`                  | Guild owner and chiefs: silence a member in the guild channel, for good or for `hours` |
-| `/wynnvoice guild unmute <player>`                        | Lift a guild channel mute                                 |
-| `/wynnvoice call <player>`                                | Call a mutual friend who is on voice; they get a chat line with accept and decline buttons |
-| `/wynnvoice accept` / `decline`                           | Answer an incoming call                                   |
-| `/wynnvoice hangup`                                       | End the call, or withdraw one that is still ringing       |
-| `/wynnvoice dnd <on\|off>`                                | Do not disturb: refuse incoming calls; shown in `/wynnvoice who` |
-| `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
-| `/wynnvoice unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
-| `/wynnvoice report <player> [reason]`                     | Report someone you heard in the last two minutes          |
-| `/wynnvoice enable`                                       | Turn voice on (shows the consent notice if still pending) |
-| `/wynnvoice disable`                                      | Turn voice off and disconnect                             |
+| `/wvc …`                                                 | Alias for every `/wynnvoicechat` command below                |
+| `/wynnvoicechat who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
+| `/wynnvoicechat blocks`                                       | List the players you have blocked                         |
+| `/wynnvoicechat tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
+| `/wynnvoicechat guild <on\|off>`                              | Hear and be heard by guild members anywhere (shows the guild channel notice once) |
+| `/wynnvoicechat guild mute <player> [hours]`                  | Guild owner and chiefs: silence a member in the guild channel, for good or for `hours` |
+| `/wynnvoicechat guild unmute <player>`                        | Lift a guild channel mute                                 |
+| `/wynnvoicechat call <player>`                                | Call a mutual friend who is on voice; they get a chat line with accept and decline buttons |
+| `/wynnvoicechat accept` / `decline`                           | Answer an incoming call                                   |
+| `/wynnvoicechat hangup`                                       | End the call, or withdraw one that is still ringing       |
+| `/wynnvoicechat dnd <on\|off>`                                | Do not disturb: refuse incoming calls; shown in `/wynnvoicechat who` |
+| `/wynnvoicechat block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
+| `/wynnvoicechat unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
+| `/wynnvoicechat report <player> [reason]`                     | Report someone you heard in the last two minutes          |
+| `/wynnvoicechat enable`                                       | Turn voice on (shows the consent notice if still pending) |
+| `/wynnvoicechat disable`                                      | Turn voice off and disconnect                             |
 
 `tier` is the audience that may hear you: `PARTY`, `FRIENDS_AND_GUILD` or `EVERYONE`. Two
 players on `EVERYONE`, on the same world and housing plot and within range, hear each other
@@ -326,7 +327,7 @@ you accept it the relay is told the channel is off. Your guild's owner and chief
 the Wynncraft API, can mute a member in the channel: a muted member still hears the channel and is
 still heard nearby, but not in the channel. Blocks win over all of this.
 
-A call (`/wynnvoice call <player>`) is a private two-person channel with a mutual friend on any
+A call (`/wynnvoicechat call <player>`) is a private two-person channel with a mutual friend on any
 world, shown as a read-only "Call" group in Simple Voice Chat. Both of you must be on voice and out
 of any party; an invite rings for 30 seconds, one at a time, and is refused when the other side is
 busy or has do-not-disturb on (`dnd`). The call ends when either hangs up, leaves voice, joins a
@@ -351,7 +352,7 @@ Reports are limited to one per minute and ten per day.
 - [x] Proximity voice on the same world and housing instance
 - [x] Party tier: hear your party anywhere
 - [x] Friends & guild tier
-- [x] Consent screen, `/wynnvoice` command and config
+- [x] Consent screen, `/wynnvoicechat` command and config
 - [x] Block and report with audio evidence
 - [x] Discord-driven moderation
 - [x] Docker image for the relay
@@ -423,7 +424,7 @@ Project link: [https://github.com/DevScyu/WynnVoiceChat](https://github.com/DevS
 [fabric-badge]: https://img.shields.io/badge/Fabric-1.21.11-DBD0B4?style=for-the-badge
 [fabric-url]: https://fabricmc.net/
 [fabric-api-url]: https://modrinth.com/mod/fabric-api
-[modrinth-url]: https://modrinth.com/mod/wynnvoice
+[modrinth-url]: https://modrinth.com/mod/wynnvoicechat
 [svc-badge]: https://img.shields.io/badge/Simple%20Voice%20Chat-2.6-1E88E5?style=for-the-badge
 [svc-url]: https://modrinth.com/mod/simple-voice-chat
 [java-badge]: https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white

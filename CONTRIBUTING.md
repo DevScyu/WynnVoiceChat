@@ -1,6 +1,6 @@
-# Contributing to WynnVoice
+# Contributing to WynnVoiceChat
 
-WynnVoice is a solo-maintained, open-source voice chat for Wynncraft. Contributions of any
+WynnVoiceChat is a solo-maintained, open-source voice chat for Wynncraft. Contributions of any
 size are welcome: bug reports, feature ideas, docs and code.
 
 ## Prerequisites
@@ -48,4 +48,4 @@ the [Contributor Covenant](.github/CODE_OF_CONDUCT.md).
 
 ## Questions?
 
-Ask on the [WynnVoice Discord](https://discord.gg/QPCwpuA2b).
+Ask on the [WynnVoiceChat Discord](https://discord.gg/QPCwpuA2b).

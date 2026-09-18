@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "wynnvoicechat.mod.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ChatListenerMixin",
+    "ConnectionMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

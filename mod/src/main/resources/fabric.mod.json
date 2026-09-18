@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "wynnvoice",
+  "id": "wynnvoicechat",
   "version": "${version}",
-  "name": "WynnVoice",
+  "name": "WynnVoiceChat",
   "description": "Simple Voice Chat on Wynncraft.",
   "license": "LGPL-3.0-only",
   "environment": "client",
   "entrypoints": {
-    "client": ["wynnvoice.mod.VoiceMod"],
-    "voicechat": ["wynnvoice.mod.svc.VoiceChatPlugin"]
+    "client": ["wynnvoicechat.mod.VoiceMod"],
+    "voicechat": ["wynnvoicechat.mod.svc.VoiceChatPlugin"]
   },
-  "mixins": ["wynnvoice.mixins.json"],
+  "mixins": ["wynnvoicechat.mixins.json"],
   "depends": {
     "fabricloader": ">=0.18.4",
     "fabric-api": "*",

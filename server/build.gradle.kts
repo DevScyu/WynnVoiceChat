@@ -30,7 +30,7 @@ dependencies {
 }
 
 application {
-    mainClass = "wynnvoice.server.MainKt"
+    mainClass = "wynnvoicechat.server.MainKt"
 }
 
 tasks.test {

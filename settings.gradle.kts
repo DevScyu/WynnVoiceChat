@@ -5,6 +5,6 @@ pluginManagement {
     }
 }
 
-rootProject.name = "wynnvoice"
+rootProject.name = "wynnvoicechat"
 
 include("protocol", "server", "mod")
