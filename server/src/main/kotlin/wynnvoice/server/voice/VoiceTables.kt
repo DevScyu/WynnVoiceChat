@@ -41,6 +41,8 @@ object VoiceReportsTable : IntIdTable("voice_reports") {
     val handled = bool("handled").default(false)
     val handledBy = text("handled_by").nullable()
     val handledAt = long("handled_at").nullable()
+    val outcome = text("outcome").nullable() // Verdict name
+    val notifiedAt = long("notified_at").nullable()
 }
 
 /** One row per voice session; the only place identity meets analytics (Grafana's SQLite datasource). */

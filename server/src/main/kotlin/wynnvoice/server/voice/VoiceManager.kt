@@ -65,6 +65,8 @@ class VoiceManager(
     private val logger = LoggerFactory.getLogger(VoiceManager::class.java)
 
     private val sessions = ConcurrentHashMap<UUID, VoiceSession>()
+    /** Authenticated control connections, on voice or not. */
+    private val players = ConcurrentHashMap<UUID, Player>()
     private val router = VoiceRouter(config.range, moderation::isBlocked)
 
     private val reportMinuteLimiters = ConcurrentHashMap<UUID, RateLimiter>()
@@ -182,7 +184,25 @@ class VoiceManager(
         }
     }
 
+    /** After `AuthResult(OK)`: register the connection and tell the player what became of their reports. */
+    fun connected(player: Player) {
+        players[player.uuid] = player
+        deliverOutcomes(player)
+    }
+
+    fun reportHandled(reportId: Int) {
+        val reporter = moderation.reportParties(reportId)?.first ?: return
+        players[reporter]?.let(::deliverOutcomes)
+    }
+
+    private fun deliverOutcomes(player: Player) {
+        for ((id, verdict) in moderation.pendingOutcomes(player.uuid)) {
+            if (moderation.markNotified(id)) player.send(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was ${verdict.name.lowercase()}"))
+        }
+    }
+
     fun leave(player: Player) {
+        players.remove(player.uuid, player)
         val session = sessions[player.uuid] ?: return
         if (session.player === player && sessions.remove(player.uuid, session)) end(session, SessionEnd.LEFT, clock())
     }

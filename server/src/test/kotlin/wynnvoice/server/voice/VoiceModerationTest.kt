@@ -88,4 +88,34 @@ class VoiceModerationTest {
         assertEquals(false, row[VoiceReportsTable.handled])
         assertEquals(now, row[VoiceReportsTable.createdAt])
     }
+
+    @Test
+    fun `outcome columns are added to a reports table from before they existed`() {
+        transaction(db) {
+            exec("DROP TABLE voice_reports")
+            exec("CREATE TABLE voice_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id BLOB NOT NULL, target_id BLOB NOT NULL, reason TEXT NOT NULL, world TEXT NOT NULL, instance TEXT NOT NULL, witness_ids TEXT NOT NULL, created_at BIGINT NOT NULL, handled BOOLEAN DEFAULT 0 NOT NULL)")
+        }
+        VoiceModeration(db) { now }.init()
+
+        val id = moderation.createReport(NewReport(alice, bob, "", "", "", null, null, emptyList(), null, null))
+        moderation.markHandled(id, "modbob", Verdict.ACTIONED)
+        assertEquals(listOf(id to Verdict.ACTIONED), moderation.pendingOutcomes(alice))
+    }
+
+    @Test
+    fun `an outcome is pending until notified exactly once`() {
+        val id = moderation.createReport(NewReport(alice, bob, "", "", "", null, null, emptyList(), null, null))
+        assertEquals(emptyList(), moderation.pendingOutcomes(alice))
+        moderation.markHandled(id, "modbob", Verdict.DISMISSED)
+        assertEquals(listOf(id to Verdict.DISMISSED), moderation.pendingOutcomes(alice))
+        assertEquals(emptyList(), moderation.pendingOutcomes(bob))
+
+        assertTrue(moderation.markNotified(id))
+        assertFalse(moderation.markNotified(id))
+        assertEquals(emptyList(), moderation.pendingOutcomes(alice))
+        val row = transaction(db) { VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq id }.single() }
+        assertEquals("DISMISSED", row[VoiceReportsTable.outcome])
+        assertEquals(now, row[VoiceReportsTable.notifiedAt])
+        assertEquals(alice to bob, moderation.reportParties(id))
+    }
 }

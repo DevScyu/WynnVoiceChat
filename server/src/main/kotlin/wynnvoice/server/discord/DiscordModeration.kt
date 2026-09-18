@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory
 import wynnvoice.server.Metrics
 import wynnvoice.server.Metrics.counters
 import wynnvoice.server.voice.FiledReport
+import wynnvoice.server.voice.Verdict
 import wynnvoice.server.voice.VoiceManager
 
 data class DiscordConfig(
@@ -206,21 +207,22 @@ class DiscordModeration(
     private fun button(customId: String, moderator: Moderator): Map<String, Any?> {
         val parts = customId.split(':')
         val reportId = parts.last().toIntOrNull() ?: return ephemeral("Unknown button.")
-        val target = moderation.reportTarget(reportId) ?: return ephemeral("Report #$reportId no longer exists.")
-        val outcome = when (parts[0]) {
+        val (_, target) = moderation.reportParties(reportId) ?: return ephemeral("Report #$reportId no longer exists.")
+        val (outcome, verdict) = when (parts[0]) {
             "ban" -> {
                 val days = parts[1].toInt()
                 ban(target, days, "Report #$reportId", moderator)
                 bans.getValue(BanAction.BAN).getValue(BanSource.BUTTON).increment()
-                "Banned ${duration(days)}"
+                "Banned ${duration(days)}" to Verdict.ACTIONED
             }
             "dismiss" -> {
                 bans.getValue(BanAction.DISMISS).getValue(BanSource.BUTTON).increment()
-                "Dismissed"
+                "Dismissed" to Verdict.DISMISSED
             }
             else -> return ephemeral("Unknown button.")
         }
-        moderation.markHandled(reportId, moderator.name)
+        moderation.markHandled(reportId, moderator.name, verdict)
+        voice.reportHandled(reportId)
         logger.info("Report #{} {} by {}", reportId, outcome.lowercase(), moderator.name)
         return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "$outcome by <@${moderator.id}>", "components" to emptyList<Any>()))
     }

@@ -110,6 +110,7 @@ class ControlHandler(
                     ctx.pipeline().get(ReadTimeoutHandler::class.java)?.let(ctx.pipeline()::remove)
                     authResults.getValue(AuthStatus.OK).increment()
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
+                    voice.connected(verifiedPlayer)
                     guilds.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
                     onAuthenticated(this)
                 }

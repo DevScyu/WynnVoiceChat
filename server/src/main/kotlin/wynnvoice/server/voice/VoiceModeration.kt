@@ -6,6 +6,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
@@ -37,11 +38,13 @@ data class NewReport(
     val audioTo: Long?,
 )
 
+enum class Verdict { ACTIONED, DISMISSED }
+
 data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?)
 
 enum class DbOp {
-    INIT, BLOCK, UNBLOCK, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_TARGET, MARK_HANDLED, ATTACH_AUDIO,
-    RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
+    INIT, BLOCK, UNBLOCK, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, MARK_HANDLED, ATTACH_AUDIO,
+    PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
 }
 
 /**
@@ -57,7 +60,10 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         DB_TIMERS.getValue(op).recordCallable { transaction(db, statement = statement) }
 
     fun init() {
-        db(DbOp.INIT) { SchemaUtils.create(VoiceBlocksTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable) }
+        db(DbOp.INIT) {
+            SchemaUtils.create(VoiceBlocksTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable)
+            SchemaUtils.addMissingColumnsStatements(VoiceReportsTable).forEach { exec(it) }
+        }
         blocks.clear()
         db(DbOp.INIT) { VoiceBlocksTable.selectAll().map { it[VoiceBlocksTable.blocker] to it[VoiceBlocksTable.blocked] } }
             .forEach { (blocker, blocked) -> blocks.computeIfAbsent(blocker) { ConcurrentHashMap.newKeySet() }.add(blocked) }
@@ -161,19 +167,37 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
-    fun reportTarget(reportId: Int): UUID? = db(DbOp.REPORT_TARGET) {
-        VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()?.get(VoiceReportsTable.targetId)
+    /** Reporter to target. */
+    fun reportParties(reportId: Int): Pair<UUID, UUID>? = db(DbOp.REPORT_PARTIES) {
+        VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()
+            ?.let { it[VoiceReportsTable.reporterId] to it[VoiceReportsTable.targetId] }
     }
 
-    fun markHandled(reportId: Int, by: String) {
+    fun markHandled(reportId: Int, by: String, verdict: Verdict) {
         val now = clock()
         db(DbOp.MARK_HANDLED) {
             VoiceReportsTable.update({ VoiceReportsTable.id eq reportId }) {
                 it[handled] = true
                 it[handledBy] = by
                 it[handledAt] = now
+                it[outcome] = verdict.name
             }
         }
+    }
+
+    /** Handled reports whose reporter has not been told yet: id to verdict. */
+    fun pendingOutcomes(reporterId: UUID): List<Pair<Int, Verdict>> = db(DbOp.PENDING_OUTCOMES) {
+        VoiceReportsTable.selectAll()
+            .where { (VoiceReportsTable.reporterId eq reporterId) and VoiceReportsTable.outcome.isNotNull() and VoiceReportsTable.notifiedAt.isNull() }
+            .map { it[VoiceReportsTable.id].value to Verdict.valueOf(it[VoiceReportsTable.outcome]!!) }
+    }
+
+    /** False when someone else already notified, so a concurrent auth and button click deliver once. */
+    fun markNotified(reportId: Int): Boolean {
+        val now = clock()
+        return db(DbOp.MARK_NOTIFIED) {
+            VoiceReportsTable.update({ (VoiceReportsTable.id eq reportId) and VoiceReportsTable.notifiedAt.isNull() }) { it[notifiedAt] = now }
+        } > 0
     }
 
     fun attachAudio(reportId: Int, reporterPath: String?, targetPath: String?) {

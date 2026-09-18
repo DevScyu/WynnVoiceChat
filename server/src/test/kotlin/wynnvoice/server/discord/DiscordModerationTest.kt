@@ -24,6 +24,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
+import wynnvoice.protocol.ResultKind
 import wynnvoice.protocol.VoiceTier
 import wynnvoice.server.ApiFetcher
 import wynnvoice.server.Metrics
@@ -205,6 +206,38 @@ class DiscordModerationTest {
 
         assertEphemeral(handle(button("dismiss:999")))
         assertEphemeral(handle(button("nonsense")))
+    }
+
+    @Test
+    fun `an online reporter hears the outcome at once`() {
+        val reporter = onVoice("Alice")
+        voice.connected(reporter)
+        val id = filedReport(reporter, onVoice("Bob"))
+
+        handle(button("ban:7:$id"))
+
+        assertEquals(listOf(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was actioned")), sent[reporter.uuid]!!.filterIsInstance<Packet.Result>())
+        val report = transaction(moderation.db) { VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq id }.single() }
+        assertEquals("ACTIONED", report[VoiceReportsTable.outcome])
+        assertEquals(now, report[VoiceReportsTable.notifiedAt])
+        voice.connected(reporter)
+        assertEquals(1, sent[reporter.uuid]!!.count { it is Packet.Result })
+    }
+
+    @Test
+    fun `an offline reporter hears the outcome on the next auth exactly once`() {
+        val reporter = player("Alice")
+        val id = filedReport(reporter, player("Bob"))
+
+        handle(button("dismiss:$id"))
+        assertTrue(sent[reporter.uuid]!!.isEmpty())
+        assertNull(transaction(moderation.db) { VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq id }.single()[VoiceReportsTable.notifiedAt] })
+
+        voice.connected(reporter)
+        assertEquals(listOf<Packet>(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was dismissed")), sent[reporter.uuid]!!.toList())
+        voice.leave(reporter)
+        voice.connected(reporter)
+        assertEquals(1, sent[reporter.uuid]!!.size)
     }
 
     // --- slash commands ---

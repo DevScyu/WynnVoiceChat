@@ -20,6 +20,8 @@ import wynnvoice.protocol.SocialKind
 import wynnvoice.protocol.VoiceTier
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import wynnvoice.server.voice.NewReport
+import wynnvoice.server.voice.Verdict
 import wynnvoice.server.voice.VoiceBansTable
 import wynnvoice.server.voice.VoiceConfig
 import wynnvoice.server.voice.VoiceManager
@@ -176,6 +178,17 @@ class ControlHandlerTest {
         ch.hello()
         assertEquals(Packet.AuthResult(AuthStatus.BANNED), ch.auth())
         assertFalse(ch.isOpen)
+    }
+
+    @Test
+    fun `pending report outcomes follow the auth result`() {
+        val id = moderation.createReport(NewReport(uuid, UUID.randomUUID(), "", "", "", null, null, emptyList(), null, null))
+        moderation.markHandled(id, "modbob", Verdict.ACTIONED)
+        val ch = ready()
+        assertEquals(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was actioned"), ch.readOutbound())
+        assertNull(ch.readOutbound())
+        ch.close()
+        assertNull(ready().readOutbound())
     }
 
     @Test
