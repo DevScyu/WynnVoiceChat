@@ -23,8 +23,11 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import wynnvoice.mod.command.VoiceCommand;
 import wynnvoice.mod.config.VoiceConfig;
+import wynnvoice.mod.config.VoiceConfig.Notice;
 import wynnvoice.mod.net.VoiceClient;
+import wynnvoice.mod.screen.ConsentScreen;
 import wynnvoice.mod.session.VoiceSession;
 import wynnvoice.mod.svc.VoiceChatBridge;
 import wynnvoice.mod.svc.VoiceChatPayloads;
@@ -34,9 +37,11 @@ import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.SocialKind;
+import wynnvoice.protocol.VoiceTier;
 
 public final class VoiceMod implements ClientModInitializer {
     public static final String MOD_ID = "wynnvoice";
+    public static final String COMMAND = "/" + MOD_ID;
     private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
     private static final int TICKS_PER_POSITION = 5; // 4 Hz
     private static final int POSITIONS_PER_STATE_SYNC = 20; // ~5 s, catches players who loaded in since the last Peers
@@ -51,6 +56,7 @@ public final class VoiceMod implements ClientModInitializer {
     private PartyTracker party;
     private FriendsTracker friends;
     private volatile boolean onWynncraft;
+    private boolean svcInstalled;
     private boolean refused;
     private boolean warnedSvcVersion;
     private boolean svcDisabled;
@@ -66,6 +72,8 @@ public final class VoiceMod implements ClientModInitializer {
             return;
         }
         instance = this;
+        svcInstalled = FabricLoader.getInstance().isModLoaded("voicechat");
+        VoiceCommand.register(this);
         ClientPlayConnectionEvents.JOIN.register((handler, sender, minecraft) -> {
             ServerData server = handler.getServerData();
             onWynncraft = server != null && isWynncraft(server.ip);
@@ -127,13 +135,71 @@ public final class VoiceMod implements ClientModInitializer {
         if (!state.onWorld()) {
             refused = false;
             disconnect();
-        } else if (client != null && !state.world().equals(connectedWorld)) {
-            disconnect();
-            connect(state);
-        } else if (client == null && !refused) {
-            connect(state);
+            return;
+        }
+        if (enteredWorld) showNotice(config.pendingNotice(svcInstalled));
+        if (client != null && !state.world().equals(connectedWorld)) disconnect();
+        if (client == null) {
+            if (!refused && config.canConnect()) connect(state);
         } else if (session != null) {
             session.setInstance(state.instance());
+        }
+    }
+
+    private void showNotice(Notice notice) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (notice == Notice.NONE || minecraft.screen instanceof ConsentScreen) return;
+        minecraft.setScreen(notice == Notice.CONSENT
+                ? ConsentScreen.consent(accepted -> {
+                    if (!accepted) {
+                        setEnabled(false);
+                        return;
+                    }
+                    config.consentVersion = VoiceConfig.CONSENT_VERSION;
+                    setEnabled(true);
+                })
+                : ConsentScreen.everyoneWarning(accepted -> {
+                    if (accepted) {
+                        config.everyoneWarningAccepted = true;
+                    } else {
+                        config.tier = VoiceTier.PARTY;
+                        chat(Component.translatable("wynnvoice.command.tierSet", config.tier.name()), ChatFormatting.YELLOW);
+                    }
+                    saveConfig();
+                    if (session != null) session.setTier(config.effectiveTier());
+                }));
+    }
+
+    private void connectIfAllowed() {
+        WorldTracker.State state = worldTracker.state();
+        if (client == null && !refused && state.onWorld() && config.canConnect()) connect(state);
+    }
+
+    public void setTier(VoiceTier tier) {
+        config.tier = tier;
+        saveConfig();
+        Notice notice = config.pendingNotice(svcInstalled);
+        if (notice == Notice.EVERYONE_WARNING && worldTracker.state().onWorld()) showNotice(notice);
+        if (session != null) session.setTier(config.effectiveTier());
+    }
+
+    public void setEnabled(boolean enabled) {
+        config.enabled = enabled;
+        saveConfig();
+        refused = false;
+        if (!enabled) {
+            disconnect();
+            return;
+        }
+        if (worldTracker.state().onWorld()) showNotice(config.pendingNotice(svcInstalled));
+        connectIfAllowed();
+    }
+
+    private void saveConfig() {
+        try {
+            config.save();
+        } catch (IOException e) {
+            LOG.error("Could not save config", e);
         }
     }
 
@@ -145,7 +211,7 @@ public final class VoiceMod implements ClientModInitializer {
                 FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow().getMetadata().getVersion().getFriendlyString());
         VoiceClient.SessionJoiner joiner = serverId -> minecraft.services().sessionService()
                 .joinServer(minecraft.getUser().getProfileId(), minecraft.getUser().getAccessToken(), serverId);
-        VoiceSession newSession = new VoiceSession(config.tier, new Effects(minecraft));
+        VoiceSession newSession = new VoiceSession(config.effectiveTier(), new Effects(minecraft));
         newSession.setSvcDisabled(svcDisabled);
         VoiceClient[] self = new VoiceClient[1];
         self[0] = client = new VoiceClient(identity, joiner, new VoiceClient.Listener() {
@@ -183,15 +249,15 @@ public final class VoiceMod implements ClientModInitializer {
         if (refused || client == null) return;
         refused = true;
         String reason = switch (status) {
-            case VERSION_MISMATCH -> "your mod version is not supported by the relay, please update";
-            case BANNED -> "you are banned from voice chat";
-            case DISABLED -> "the relay is currently disabled";
-            case NOT_ALLOWED -> "you are not on the relay's allowlist";
-            case BAD_SESSION -> "Mojang did not confirm your session";
-            case SESSION_UNAVAILABLE -> "Mojang's session server could not be reached";
+            case VERSION_MISMATCH -> "versionMismatch";
+            case BANNED -> "banned";
+            case DISABLED -> "disabled";
+            case NOT_ALLOWED -> "notAllowed";
+            case BAD_SESSION -> "badSession";
+            case SESSION_UNAVAILABLE -> "sessionUnavailable";
             case OK -> throw new IllegalArgumentException();
         };
-        chat("Voice chat unavailable: " + reason, ChatFormatting.RED);
+        chat(Component.translatable("wynnvoice.unavailable", Component.translatable("wynnvoice.unavailable." + reason)), ChatFormatting.RED);
         disconnect();
     }
 
@@ -204,8 +270,8 @@ public final class VoiceMod implements ClientModInitializer {
         client = null;
     }
 
-    private static void chat(String message, ChatFormatting colour) {
-        Minecraft.getInstance().gui.getChat().addMessage(Component.literal("[WynnVoice] " + message).withStyle(colour));
+    private static void chat(Component message, ChatFormatting colour) {
+        Minecraft.getInstance().gui.getChat().addMessage(Component.translatable("wynnvoice.chat", message).withStyle(colour));
     }
 
     private static void sendCommand(String command) {
@@ -235,7 +301,7 @@ public final class VoiceMod implements ClientModInitializer {
     private void onSvcPayload(VoiceChatBridge.Intercepted intercepted) {
         Identifier channel = intercepted.channel();
         if (channel.equals(VoiceChatPayloads.CREATE_GROUP) || channel.equals(VoiceChatPayloads.SET_GROUP) || channel.equals(VoiceChatPayloads.LEAVE_GROUP)) {
-            chat("Voice groups follow your Wynncraft party. Use /party instead.", ChatFormatting.YELLOW);
+            chat(Component.translatable("wynnvoice.groupsFollowParty"), ChatFormatting.YELLOW);
             return;
         }
         if (!intercepted.data().isReadable()) return;
@@ -243,7 +309,7 @@ public final class VoiceMod implements ClientModInitializer {
             int version = VoiceChatPayloads.readRequestSecretVersion(intercepted.data());
             if (version != VoiceClient.SVC_COMPAT_VERSION && !warnedSvcVersion) {
                 warnedSvcVersion = true;
-                chat("Your Simple Voice Chat version is not supported, please update it", ChatFormatting.RED);
+                chat(Component.translatable("wynnvoice.unsupportedSvcVersion"), ChatFormatting.RED);
             }
         } else if (channel.equals(VoiceChatPayloads.UPDATE_STATE)) {
             svcDisabled = VoiceChatPayloads.readUpdateStateDisabled(intercepted.data());
@@ -259,8 +325,8 @@ public final class VoiceMod implements ClientModInitializer {
         }
 
         @Override
-        public void chat(String message) {
-            VoiceMod.chat(message, ChatFormatting.YELLOW);
+        public void ended(String relayMessage) {
+            VoiceMod.chat(Component.translatable("wynnvoice.ended", relayMessage), ChatFormatting.YELLOW);
         }
 
         @Override

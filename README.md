@@ -153,19 +153,36 @@ Minecraft directory, created on first launch:
 {
   "relayHost": "localhost",
   "relayPort": 9100,
-  "tier": "PARTY"
+  "enabled": true,
+  "tier": "PARTY",
+  "consentVersion": 0,
+  "everyoneWarningAccepted": false
 }
 ```
 
+Nothing happens until you accept the consent notice, which appears on your first world join
+when Simple Voice Chat is installed. Accepting stores `consentVersion`; cancelling (or closing
+the notice) sets `enabled` to `false`. Every change made in game is written to the file
+immediately.
+
 Joining a world connects to the relay and authenticates through Mojang. If the relay refuses
 the connection you get one chat line explaining why; leaving the world closes the connection.
+
+| Command                                                   | Effect                                                    |
+|-----------------------------------------------------------|-----------------------------------------------------------|
+| `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
+| `/wynnvoice enable`                                       | Turn voice on (shows the consent notice if still pending) |
+| `/wynnvoice disable`                                      | Turn voice off and disconnect                             |
 
 `tier` is the audience that may hear you: `PARTY`, `FRIENDS_AND_GUILD` or `EVERYONE`. Two
 players on `EVERYONE`, on the same world and housing plot and within range, hear each other
 through Simple Voice Chat; Simple Voice Chat's own disable toggle stops delivery. On
 `FRIENDS_AND_GUILD` you additionally need to be mutual friends or in the same guild: the mod
 reads your friend list from `/friend list`, and the relay looks your guild up on the Wynncraft
-public API (cached ten minutes), so a client can never claim a guild it is not in.
+public API (cached ten minutes), so a client can never claim a guild it is not in. Choosing
+`EVERYONE` shows the rules once; until you accept them (`everyoneWarningAccepted`) the relay is
+told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may additionally cap the
+audience at friends & guild (`VOICE_EVERYONE_ENABLED`).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

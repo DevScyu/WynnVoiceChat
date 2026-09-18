@@ -23,7 +23,8 @@ public final class VoiceSession {
     public interface Effects {
         void send(Packet packet);
 
-        void chat(String message);
+        /** The relay ended the session for a reason other than a timeout; say so once. */
+        void ended(String relayMessage);
 
         void injectSecret(Packet.Secret secret);
 
@@ -42,13 +43,14 @@ public final class VoiceSession {
 
     public static final UUID PARTY_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000001");
 
-    private final VoiceTier tier;
     private final Effects effects;
+    private VoiceTier tier;
     private boolean authenticated;
     private volatile boolean active;
     private boolean inPartyGroup;
     private String instance = "";
     private String joinedInstance = "";
+    private VoiceTier joinedTier;
     private volatile boolean svcDisabled;
     private Packet.Position lastPosition;
     private List<Peer> lastPeers = List.of();
@@ -57,6 +59,12 @@ public final class VoiceSession {
     public VoiceSession(VoiceTier tier, Effects effects) {
         this.tier = tier;
         this.effects = effects;
+    }
+
+    public void setTier(VoiceTier tier) {
+        if (tier == this.tier) return;
+        this.tier = tier;
+        pushUpdate();
     }
 
     public boolean isActive() {
@@ -82,6 +90,7 @@ public final class VoiceSession {
 
     private void join() {
         joinedInstance = instance;
+        joinedTier = tier;
         effects.send(new Packet.Join(tier, instance));
     }
 
@@ -92,7 +101,7 @@ public final class VoiceSession {
                 lastPosition = null;
                 inPartyGroup = false;
                 effects.injectSecret(secret);
-                if (svcDisabled || !instance.equals(joinedInstance)) pushUpdate();
+                if (svcDisabled || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Peers peers -> {
@@ -116,7 +125,7 @@ public final class VoiceSession {
         }
         if (ended.reason() == lastRefusal) return;
         lastRefusal = ended.reason();
-        effects.chat("Voice chat ended: " + ended.message());
+        effects.ended(ended.message());
     }
 
     public void onClosed() {

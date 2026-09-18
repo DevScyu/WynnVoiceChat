@@ -25,7 +25,7 @@ class VoiceSessionTest {
     private static final Packet.Secret SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000);
 
     private final List<Packet> sent = new ArrayList<>();
-    private final List<String> chat = new ArrayList<>();
+    private final List<String> ended = new ArrayList<>();
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
@@ -40,8 +40,8 @@ class VoiceSessionTest {
         }
 
         @Override
-        public void chat(String message) {
-            chat.add(message);
+        public void ended(String relayMessage) {
+            ended.add(relayMessage);
         }
 
         @Override
@@ -103,15 +103,14 @@ class VoiceSessionTest {
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         assertFalse(session.isActive());
         assertEquals(List.of(new Packet.Join(VoiceTier.EVERYONE, "")), sent);
-        assertTrue(chat.isEmpty());
+        assertTrue(ended.isEmpty());
 
         session.onPacket(SECRET);
         sent.clear();
         session.onPacket(new Packet.Ended(EndReason.DISABLED, "relay off"));
         session.onPacket(new Packet.Ended(EndReason.DISABLED, "relay off"));
         assertTrue(sent.isEmpty());
-        assertEquals(1, chat.size());
-        assertTrue(chat.get(0).contains("relay off"));
+        assertEquals(List.of("relay off"), ended);
     }
 
     @Test
@@ -137,6 +136,25 @@ class VoiceSessionTest {
         assertEquals(List.of(
                 new Packet.Update(VoiceTier.EVERYONE, "housing:X", false, false, false),
                 new Packet.Update(VoiceTier.EVERYONE, "housing:X", true, false, false)), sent);
+    }
+
+    @Test
+    void tierChangeSendsUpdateImmediatelyAndJoinsWithTheNewTier() {
+        session.setTier(VoiceTier.PARTY);
+        assertTrue(sent.isEmpty());
+        joined();
+        session.setTier(VoiceTier.PARTY);
+        assertTrue(sent.isEmpty(), "unchanged tier");
+        session.setTier(VoiceTier.FRIENDS_AND_GUILD);
+        assertEquals(List.of(new Packet.Update(VoiceTier.FRIENDS_AND_GUILD, "", false, false, false)), sent);
+
+        sent.clear();
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        assertEquals(List.of(new Packet.Join(VoiceTier.FRIENDS_AND_GUILD, "")), sent);
+
+        session.setTier(VoiceTier.EVERYONE);
+        session.onPacket(SECRET);
+        assertEquals(new Packet.Update(VoiceTier.EVERYONE, "", false, false, false), sent.get(sent.size() - 1), "changed between Join and Secret");
     }
 
     @Test

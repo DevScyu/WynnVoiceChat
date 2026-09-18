@@ -10,13 +10,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import wynnvoice.protocol.VoiceTier;
 
+/** Persisted user choices plus the pure decisions derived from them; the screens and commands only mutate and save. */
 public final class VoiceConfig {
+    /** Bump when the consent notice changes materially; users must accept again. */
+    public static final int CONSENT_VERSION = 1;
+
+    public enum Notice { NONE, CONSENT, EVERYONE_WARNING }
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Logger LOG = LoggerFactory.getLogger("wynnvoice");
 
     public String relayHost = "localhost";
     public int relayPort = 9100;
+    public boolean enabled = true;
     public VoiceTier tier = VoiceTier.PARTY;
+    public int consentVersion;
+    public boolean everyoneWarningAccepted;
+    private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {
         VoiceConfig config = null;
@@ -29,12 +39,37 @@ public final class VoiceConfig {
         }
         if (config == null) config = new VoiceConfig();
         if (config.tier == null) config.tier = VoiceTier.PARTY;
-        config.save(file);
+        config.file = file;
+        config.save();
         return config;
     }
 
-    public void save(Path file) throws IOException {
+    public void save() throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, GSON.toJson(this));
+    }
+
+    public boolean hasConsent() {
+        return consentVersion >= CONSENT_VERSION;
+    }
+
+    public boolean canConnect() {
+        return enabled && hasConsent();
+    }
+
+    private boolean needsEveryoneWarning() {
+        return tier == VoiceTier.EVERYONE && !everyoneWarningAccepted;
+    }
+
+    /** EVERYONE is only honoured once the warning was accepted; the relay clamps to its own cap on top. */
+    public VoiceTier effectiveTier() {
+        return needsEveryoneWarning() ? VoiceTier.PARTY : tier;
+    }
+
+    /** The consent notice is only worth showing to people who can actually use voice. */
+    public Notice pendingNotice(boolean svcInstalled) {
+        if (!enabled) return Notice.NONE;
+        if (!hasConsent()) return svcInstalled ? Notice.CONSENT : Notice.NONE;
+        return needsEveryoneWarning() ? Notice.EVERYONE_WARNING : Notice.NONE;
     }
 }
