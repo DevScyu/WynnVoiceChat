@@ -81,9 +81,8 @@ class VoiceManagerTest {
     private val guildId = UUID.fromString("18d19092-684b-427b-aa58-574230befe79")
 
     private fun guildmate(name: String, rank: String = "recruit", world: String? = "WC1", position: Position? = Position(0f, 100f, 0f)) = player(name, position, world).also {
-        it.guildMembers = setOf("A", "G", "H")
+        it.guildRanks = mapOf("A" to "recruit", "G" to "recruit", "H" to "recruit", name to rank)
         it.guildId = guildId
-        it.guildRank = rank
     }
 
     private fun mic(player: Player, address: InetSocketAddress, secret: ByteArray, sequence: Long = 1) {
@@ -277,9 +276,10 @@ class VoiceManagerTest {
 
     @Test
     fun `friends and guild tier reaches mutual friends and guild mates in range only`() {
-        val a = player("A").also { it.friends = setOf("F", "OneSided"); it.guildMembers = setOf("A", "G") }
+        val guild = mapOf("A" to "recruit", "G" to "recruit")
+        val a = player("A").also { it.friends = setOf("F", "OneSided"); it.guildRanks = guild }
         val f = player("F", Position(10f, 100f, 0f)).also { it.friends = setOf("A") }
-        val g = player("G", Position(10f, 100f, 0f)).also { it.guildMembers = setOf("A", "G") }
+        val g = player("G", Position(10f, 100f, 0f)).also { it.guildRanks = guild }
         val oneSided = player("OneSided", Position(10f, 100f, 0f))
         val stranger = player("S", Position(10f, 100f, 0f))
         val secretA = connect(a, addrA, tier = VoiceTier.FRIENDS_AND_GUILD)
@@ -338,7 +338,7 @@ class VoiceManagerTest {
 
         manager.guildMute(a, "G", muted = true, hours = 1)
         assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Only the guild owner and chiefs can mute"), last<Packet.Result>(a))
-        a.guildRank = "chief"
+        a.guildRanks = a.guildRanks + ("A" to "chief")
         manager.guildMute(a, "Nobody", muted = true, hours = 1)
         assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Nobody is not in your guild"), last<Packet.Result>(a))
         val guildless = player("X")
@@ -367,6 +367,31 @@ class VoiceManagerTest {
         assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Unmuted G in the guild channel"), last<Packet.Result>(a))
         mic(g, addrB, secretG, sequence = 4)
         assertEquals(listOf(addrA), transport.sent.map { it.first })
+    }
+
+    @Test
+    fun `chiefs cannot mute the owner or another chief but the owner mutes anyone`() {
+        val chief = guildmate("A", rank = "chief").also { it.guildRanks = it.guildRanks + mapOf("G" to "chief", "H" to "owner") }
+        val other = guildmate("G", rank = "chief")
+        val owner = guildmate("H", rank = "owner").also { it.guildRanks = it.guildRanks + mapOf("A" to "chief", "G" to "chief") }
+        connect(chief, addrA)
+        connect(other, addrB)
+        connect(owner, addrC)
+
+        manager.guildMute(chief, "G", muted = true, hours = 0)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Only the guild owner can mute a chief"), last<Packet.Result>(chief))
+        manager.guildMute(chief, "H", muted = true, hours = 0)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Only the guild owner can mute a chief"), last<Packet.Result>(chief))
+        assertFalse(moderation.isGuildMuted(guildId, other.uuid))
+        assertFalse(moderation.isGuildMuted(guildId, owner.uuid))
+
+        manager.guildMute(owner, "G", muted = true, hours = 0)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Muted G in the guild channel"), last<Packet.Result>(owner))
+        assertTrue(moderation.isGuildMuted(guildId, other.uuid))
+        manager.guildMute(chief, "G", muted = false, hours = 0)
+        assertTrue(moderation.isGuildMuted(guildId, other.uuid), "a chief cannot undo the owner's mute of a chief")
+        manager.guildMute(owner, "A", muted = true, hours = 0)
+        assertTrue(moderation.isGuildMuted(guildId, chief.uuid))
     }
 
     @Test

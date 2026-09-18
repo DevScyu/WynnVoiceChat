@@ -20,7 +20,7 @@ public final class VoiceConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Logger LOG = LoggerFactory.getLogger("wynnvoice");
 
-    public String relayHost = "localhost";
+    public String relayHost = "relay.wynnvoice.com";
     public int relayPort = 9100;
     public boolean enabled = true;
     public VoiceTier tier = VoiceTier.PARTY;
@@ -64,13 +64,14 @@ public final class VoiceConfig {
         return enabled && hasConsent();
     }
 
-    private boolean needsEveryoneWarning() {
-        return tier == VoiceTier.EVERYONE && !everyoneWarningAccepted;
+    /** The rules screen is pointless while the relay caps the audience below EVERYONE. */
+    private boolean needsEveryoneWarning(VoiceTier relayMaxTier) {
+        return tier == VoiceTier.EVERYONE && !everyoneWarningAccepted && relayMaxTier == VoiceTier.EVERYONE;
     }
 
     /** EVERYONE is only honoured once the warning was accepted; the relay clamps to its own cap on top. */
-    public VoiceTier effectiveTier() {
-        return needsEveryoneWarning() ? VoiceTier.PARTY : tier;
+    public VoiceTier effectiveTier(VoiceTier relayMaxTier) {
+        return needsEveryoneWarning(relayMaxTier) ? VoiceTier.PARTY : tier;
     }
 
     private boolean needsGuildWarning() {
@@ -83,10 +84,10 @@ public final class VoiceConfig {
     }
 
     /** The consent notice is only worth showing to people who can actually use voice. */
-    public Notice pendingNotice(boolean svcInstalled) {
+    public Notice pendingNotice(boolean svcInstalled, VoiceTier relayMaxTier) {
         if (!enabled) return Notice.NONE;
         if (!hasConsent()) return svcInstalled ? Notice.CONSENT : Notice.NONE;
-        if (needsEveryoneWarning()) return Notice.EVERYONE_WARNING;
+        if (needsEveryoneWarning(relayMaxTier)) return Notice.EVERYONE_WARNING;
         return needsGuildWarning() ? Notice.GUILD_WARNING : Notice.NONE;
     }
 }

@@ -10,7 +10,7 @@ import wynnvoice.protocol.Relation;
 
 class VoiceRosterTest {
     private static Peer peer(String name, Relation relation, boolean disabled, boolean reachable) {
-        return new Peer(UUID.randomUUID(), name, disabled, relation, reachable);
+        return new Peer(UUID.randomUUID(), name, disabled, relation, reachable, false);
     }
 
     @Test

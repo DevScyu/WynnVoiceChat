@@ -16,10 +16,11 @@ class Player(val uuid: UUID, val name: String, val modVersion: String = "other",
     @Volatile var position: Position? = null
     @Volatile var party: Set<String> = emptySet()
     @Volatile var friends: Set<String> = emptySet()
-    @Volatile var guildMembers: Set<String> = emptySet()
-    /** Guild uuid and the player's own rank, from the Wynncraft API alongside [guildMembers]. */
+    /** Guild uuid and every member's rank by name, from the Wynncraft API after auth; never from the client. */
     @Volatile var guildId: UUID? = null
-    @Volatile var guildRank: String? = null
+    @Volatile var guildRanks: Map<String, String> = emptyMap()
+    val guildMembers: Set<String> get() = guildRanks.keys
+    val guildRank: String? get() = guildRanks[name]
 
     fun apply(social: Packet.Social) {
         val current = when (social.kind) {

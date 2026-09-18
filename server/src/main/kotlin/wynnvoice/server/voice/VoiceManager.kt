@@ -135,7 +135,8 @@ class VoiceManager(
         private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
         private const val SESSION_PROFILE_URL = "https://sessionserver.mojang.com/session/minecraft/profile/"
         private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
-        private val MUTING_RANKS = setOf("owner", "chief")
+        private const val OWNER = "owner"
+        private val MUTING_RANKS = setOf(OWNER, "chief")
         /** World is a client-supplied string; only real Wynncraft worlds become label values. */
         private val WORLD = Regex("WC\\d{1,3}")
         private const val UNCONNECTED_TIMEOUT_MS = 60_000L
@@ -192,7 +193,7 @@ class VoiceManager(
         val session = VoiceSession(player, SvcCrypto.newSecret(), effectiveTier, instance, now, recordId)
         sessions.put(player.uuid, session)?.let { end(it, SessionEnd.REPLACED, now) }
         sessionsStarted.increment()
-        player.send(Packet.Secret(session.secret, config.host, config.port, config.range, config.keepAliveMs))
+        player.send(Packet.Secret(session.secret, config.host, config.port, config.range, config.keepAliveMs, config.maxTier))
     }
 
     fun update(player: Player, tier: VoiceTier, instance: String, disabled: Boolean, guildChannel: Boolean = false, dnd: Boolean = false) {
@@ -272,12 +273,13 @@ class VoiceManager(
         }
     }
 
-    /** Owner and chiefs mute fellow members in the guild channel; the rank comes from the API, never the client. */
+    /** Owner and chiefs mute fellow members in the guild channel; ranks come from the API, never the client, and chiefs cannot touch each other or the owner. */
     fun guildMute(player: Player, targetName: String, muted: Boolean, hours: Int) {
         fun fail(message: String) = player.send(Packet.Result(ResultKind.GUILD_MUTE, false, message))
         val guild = player.guildId ?: return fail("You are not in a guild")
         if (player.guildRank !in MUTING_RANKS) return fail("Only the guild owner and chiefs can mute")
         val member = player.guildMembers.firstOrNull { it.equals(targetName, ignoreCase = true) } ?: return fail("$targetName is not in your guild")
+        if (player.guildRank != OWNER && player.guildRanks[member] in MUTING_RANKS) return fail("Only the guild owner can mute a chief")
         resolveUuid(member).whenComplete { target, error ->
             when {
                 error != null -> {
@@ -631,7 +633,7 @@ class VoiceManager(
             // Every voice user on the world gets an entry so SVC can show who has voice; audio stays tier-gated.
             val peers = participants
                 .filter { it.uuid != self.uuid && (it.uuid in group || router.isCall(self, it) || router.isGuildChannel(self, it) || (it.world != null && it.world == self.world)) }
-                .map { Peer(it.uuid, it.name, it.disabled, router.relation(self, it), router.canTalk(self, it)) }
+                .map { Peer(it.uuid, it.name, it.disabled, router.relation(self, it), router.canTalk(self, it), it.guildChannel) }
                 .sortedBy { it.uuid }
             if (peers != session.lastPeers) {
                 session.lastPeers = peers

@@ -40,6 +40,12 @@ class ControlServerTest {
 
     private fun sample(series: String) = MetricsTest.sample(Metrics.scrape(), series)!!.toDouble()
 
+    private fun awaitSample(series: String, expected: Double, timeoutMs: Long = 2_000): Double {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (sample(series) != expected && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        return sample(series)
+    }
+
     @AfterTest
     fun stop() {
         clientGroup.shutdownGracefully()
@@ -74,7 +80,8 @@ class ControlServerTest {
 
         channel.writeAndFlush(Packet.Auth("Player", uuid))
         assertEquals(Packet.AuthResult(AuthStatus.OK), received.poll(5, TimeUnit.SECONDS))
-        assertEquals(1.0, sample("voice_control_connections{state=\"authenticated\"}"))
+        // AuthResult reaches the client before the server thread runs the onAuthenticated hook that moves the gauge
+        assertEquals(1.0, awaitSample("voice_control_connections{state=\"authenticated\"}", 1.0))
         channel.close().sync()
         Thread.sleep(200)
 

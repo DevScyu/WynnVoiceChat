@@ -18,57 +18,70 @@ class VoiceConfigTest {
     @Test
     void consentComesBeforeAnythingElse() {
         assertFalse(config.canConnect());
-        assertEquals(Notice.CONSENT, config.pendingNotice(true));
-        assertEquals(Notice.NONE, config.pendingNotice(false), "no Simple Voice Chat, nobody to ask");
+        assertEquals(Notice.CONSENT, config.pendingNotice(true, VoiceTier.EVERYONE));
+        assertEquals(Notice.NONE, config.pendingNotice(false, VoiceTier.EVERYONE), "no Simple Voice Chat, nobody to ask");
 
         config.consentVersion = VoiceConfig.CONSENT_VERSION;
         assertTrue(config.canConnect());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
 
         config.enabled = false;
         assertFalse(config.canConnect());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
     }
 
     @Test
     void everyoneIsDowngradedUntilTheWarningIsAccepted() {
         config.consentVersion = VoiceConfig.CONSENT_VERSION;
         config.tier = VoiceTier.EVERYONE;
-        assertEquals(VoiceTier.PARTY, config.effectiveTier());
-        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true));
+        assertEquals(VoiceTier.PARTY, config.effectiveTier(VoiceTier.EVERYONE));
+        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true, VoiceTier.EVERYONE));
 
         config.everyoneWarningAccepted = true;
-        assertEquals(VoiceTier.EVERYONE, config.effectiveTier());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(VoiceTier.EVERYONE, config.effectiveTier(VoiceTier.EVERYONE));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
 
         config.tier = VoiceTier.FRIENDS_AND_GUILD;
         config.everyoneWarningAccepted = false;
-        assertEquals(VoiceTier.FRIENDS_AND_GUILD, config.effectiveTier());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(VoiceTier.FRIENDS_AND_GUILD, config.effectiveTier(VoiceTier.EVERYONE));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
     }
 
     @Test
     void guildChannelWaitsForItsWarningAfterTheEveryoneOne() {
         config.consentVersion = VoiceConfig.CONSENT_VERSION;
         assertFalse(config.effectiveGuildChannel());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
 
         config.guildChannel = true;
         assertFalse(config.effectiveGuildChannel());
-        assertEquals(Notice.GUILD_WARNING, config.pendingNotice(true));
+        assertEquals(Notice.GUILD_WARNING, config.pendingNotice(true, VoiceTier.EVERYONE));
         config.tier = VoiceTier.EVERYONE;
-        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true));
+        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true, VoiceTier.EVERYONE));
 
         config.everyoneWarningAccepted = true;
         config.guildWarningAccepted = true;
         assertTrue(config.effectiveGuildChannel());
-        assertEquals(Notice.NONE, config.pendingNotice(true));
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.EVERYONE));
+    }
+
+    @Test
+    void everyoneWarningWaitsWhileTheRelayCapsBelowEveryone() {
+        config.consentVersion = VoiceConfig.CONSENT_VERSION;
+        config.tier = VoiceTier.EVERYONE;
+        assertEquals(Notice.NONE, config.pendingNotice(true, VoiceTier.FRIENDS_AND_GUILD));
+        assertEquals(VoiceTier.EVERYONE, config.effectiveTier(VoiceTier.FRIENDS_AND_GUILD), "no warning to wait for; the relay clamps");
+        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true, VoiceTier.EVERYONE));
+        assertEquals(VoiceTier.PARTY, config.effectiveTier(VoiceTier.EVERYONE));
+
+        config.guildChannel = true;
+        assertEquals(Notice.GUILD_WARNING, config.pendingNotice(true, VoiceTier.PARTY), "the guild warning is not held back by the cap");
     }
 
     @Test
     void oldConsentVersionAsksAgain() {
         config.consentVersion = VoiceConfig.CONSENT_VERSION - 1;
-        assertEquals(Notice.CONSENT, config.pendingNotice(true));
+        assertEquals(Notice.CONSENT, config.pendingNotice(true, VoiceTier.EVERYONE));
     }
 
     @Test
@@ -76,6 +89,7 @@ class VoiceConfigTest {
         Path file = dir.resolve("wynnvoice.json");
         Files.writeString(file, "{\"relayHost\":\"relay.example\",\"tier\":\"EVERYONE\"}");
         VoiceConfig loaded = VoiceConfig.load(file);
+        assertEquals("relay.wynnvoice.com", new VoiceConfig().relayHost);
         assertTrue(loaded.enabled);
         assertEquals(0, loaded.consentVersion);
         assertEquals("relay.example", loaded.relayHost);

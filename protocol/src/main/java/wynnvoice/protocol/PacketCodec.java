@@ -47,6 +47,7 @@ public final class PacketCodec {
                 writeVarInt(out, p.port());
                 out.writeDouble(p.range());
                 writeVarInt(out, p.keepAliveMs());
+                writeEnum(out, p.maxTier());
             }
             case Update p -> {
                 out.writeByte(6);
@@ -82,6 +83,7 @@ public final class PacketCodec {
                     out.writeBoolean(peer.disabled());
                     writeEnum(out, peer.relation());
                     out.writeBoolean(peer.reachable());
+                    out.writeBoolean(peer.guildChannel());
                 }
             }
             case Ended p -> {
@@ -127,6 +129,10 @@ public final class PacketCodec {
                 writeString(out, p.peerName());
                 writeEnum(out, p.state());
             }
+            case Guild p -> {
+                out.writeByte(20);
+                writeString(out, p.prefix());
+            }
         }
     }
 
@@ -138,7 +144,7 @@ public final class PacketCodec {
             case 2 -> new Auth(readString(in), readUuid(in));
             case 3 -> new AuthResult(readEnum(in, AuthStatus.class));
             case 4 -> new Join(readEnum(in, VoiceTier.class), readString(in));
-            case 5 -> new Secret(readBytes(in, Protocol.SECRET_BYTES), readString(in), readVarInt(in), in.readDouble(), readVarInt(in));
+            case 5 -> new Secret(readBytes(in, Protocol.SECRET_BYTES), readString(in), readVarInt(in), in.readDouble(), readVarInt(in), readEnum(in, VoiceTier.class));
             case 6 -> new Update(readEnum(in, VoiceTier.class), readString(in), in.readBoolean(), in.readBoolean(), in.readBoolean());
             case 7 -> new World(readString(in));
             case 8 -> new Position(in.readFloat(), in.readFloat(), in.readFloat());
@@ -147,7 +153,7 @@ public final class PacketCodec {
                 int size = readListSize(in);
                 List<Peer> peers = new ArrayList<>(size);
                 for (int i = 0; i < size; i++) {
-                    peers.add(new Peer(readUuid(in), readString(in), in.readBoolean(), readEnum(in, Relation.class), in.readBoolean()));
+                    peers.add(new Peer(readUuid(in), readString(in), in.readBoolean(), readEnum(in, Relation.class), in.readBoolean(), in.readBoolean()));
                 }
                 yield new Peers(peers);
             }
@@ -160,6 +166,7 @@ public final class PacketCodec {
             case 17 -> new GuildMute(readString(in), in.readBoolean(), readVarInt(in));
             case 18 -> new Call(readString(in), readEnum(in, CallAction.class));
             case 19 -> new CallState(readString(in), readEnum(in, CallStateKind.class));
+            case 20 -> new Guild(readString(in));
             default -> throw new DecoderException("Unknown packet id " + id);
         };
     }

@@ -243,6 +243,32 @@ class DiscordModerationTest {
     // --- slash commands ---
 
     @Test
+    fun `slash ban actions every open report against the target and tells the reporters`() {
+        val alice = onVoice("Alice")
+        val carol = onVoice("Carol")
+        val bob = onVoice("Bob")
+        val dave = onVoice("Dave")
+        voice.connected(alice)
+        voice.connected(carol)
+        val first = filedReport(alice, bob)
+        val second = filedReport(carol, bob)
+        val unrelated = filedReport(alice, dave)
+        val dismissed = filedReport(carol, bob)
+        handle(button("dismiss:$dismissed"))
+        sent.values.forEach { it.clear() }
+
+        assertEquals("Banned Bob permanently. Actioned 2 open report(s): #$first, #$second.", content(handle(slash("ban", "player" to "Bob"))))
+
+        val rows = transaction(moderation.db) { VoiceReportsTable.selectAll().associate { it[VoiceReportsTable.id].value to Triple(it[VoiceReportsTable.outcome], it[VoiceReportsTable.handledBy], it[VoiceReportsTable.notifiedAt]) } }
+        assertEquals(Triple("ACTIONED", "modbob", now), rows[first])
+        assertEquals(Triple("ACTIONED", "modbob", now), rows[second])
+        assertEquals(Triple(null, null, null), rows[unrelated])
+        assertEquals("DISMISSED", rows[dismissed]!!.first)
+        assertEquals(listOf(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$first was actioned")), sent[alice.uuid]!!.filterIsInstance<Packet.Result>())
+        assertEquals(listOf(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$second was actioned")), sent[carol.uuid]!!.filterIsInstance<Packet.Result>())
+    }
+
+    @Test
     fun `ban and unban by name resolve live sessions then mojang`() {
         val bob = onVoice("Bob")
         val offline = UUID.randomUUID()

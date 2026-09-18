@@ -43,6 +43,9 @@ public final class VoiceSession {
 
         void injectSecret(Packet.Secret secret);
 
+        /** The relay's audience cap differs from what we assumed; re-evaluate the tier and say so if ours exceeds it. */
+        void maxTier(VoiceTier maxTier);
+
         void injectStates(List<VoiceChatPayloads.State> states);
 
         /** Real players on the level other than ourselves: uuid to display name. */
@@ -52,8 +55,8 @@ public final class VoiceSession {
 
         Set<String> friends();
 
-        /** Put us in the read-only SVC group mirroring the party, call or guild channel, or in none. */
-        void injectGroup(UUID group);
+        /** Put us in the read-only SVC group mirroring the party, call or guild channel, or in none; re-adding a group renames it. */
+        void injectGroup(UUID group, String name);
 
         /** A friend call progressed; say so, with accept/decline controls for an incoming one. */
         void callState(Packet.CallState state);
@@ -65,6 +68,8 @@ public final class VoiceSession {
 
     private final Effects effects;
     private VoiceTier tier;
+    private VoiceTier maxTier = VoiceTier.EVERYONE;
+    private String guildPrefix = "";
     private boolean authenticated;
     private volatile boolean active;
     private UUID group;
@@ -108,6 +113,11 @@ public final class VoiceSession {
 
     public boolean isActive() {
         return active;
+    }
+
+    /** The relay's audience cap; EVERYONE until a {@code Secret} says otherwise. */
+    public VoiceTier maxTier() {
+        return maxTier;
     }
 
     public List<Peer> lastPeers() {
@@ -156,6 +166,14 @@ public final class VoiceSession {
                 callPeer = null;
                 effects.injectSecret(secret);
                 if (svcDisabled || guildChannel || dnd || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
+                if (secret.maxTier() != maxTier) {
+                    maxTier = secret.maxTier();
+                    effects.maxTier(maxTier);
+                }
+            }
+            case Packet.Guild guild -> {
+                guildPrefix = guild.prefix();
+                if (group == GUILD_GROUP) effects.injectGroup(group, groupName(group));
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Result result -> {
@@ -238,7 +256,13 @@ public final class VoiceSession {
         }
         if (next == group) return;
         group = next;
-        effects.injectGroup(next);
+        effects.injectGroup(next, next == null ? null : groupName(next));
+    }
+
+    private String groupName(UUID group) {
+        if (group.equals(PARTY_GROUP)) return "Party";
+        if (group.equals(CALL_GROUP)) return "Call";
+        return guildPrefix.isEmpty() ? "Guild" : "[" + guildPrefix + "]";
     }
 
     /** SVC draws nothing for players it has no state for, so non-voice players get an explicit "disconnected" state. */
@@ -247,11 +271,10 @@ public final class VoiceSession {
         effects.injectStates(buildStates(lastPeers, effects.otherPlayers(), guildChannel, callPeer));
     }
 
-    // ponytail: guild peers who left the channel but stay reachable nearby still show in the group; the protocol has no channel flag
     static UUID groupOf(Peer peer, boolean guildChannel, String callPeer) {
         if (peer.relation() == Relation.PARTY) return PARTY_GROUP;
         if (peer.name().equals(callPeer)) return CALL_GROUP;
-        return guildChannel && peer.relation() == Relation.GUILD && peer.reachable() ? GUILD_GROUP : null;
+        return guildChannel && peer.relation() == Relation.GUILD && peer.guildChannel() ? GUILD_GROUP : null;
     }
 
     public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others, boolean guildChannel, String callPeer) {

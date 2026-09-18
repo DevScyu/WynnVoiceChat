@@ -29,7 +29,8 @@ public sealed interface Packet {
 
     record Join(VoiceTier tier, String instance) implements Packet {}
 
-    record Secret(byte[] secret, String host, int port, double range, int keepAliveMs) implements Packet {
+    /** {@code maxTier} is the relay's audience cap; a higher tier in {@code Join} or {@code Update} is clamped to it. */
+    record Secret(byte[] secret, String host, int port, double range, int keepAliveMs, VoiceTier maxTier) implements Packet {
         public Secret {
             if (secret.length != Protocol.SECRET_BYTES) throw new IllegalArgumentException("secret must be " + Protocol.SECRET_BYTES + " bytes");
         }
@@ -41,7 +42,8 @@ public sealed interface Packet {
                     && host.equals(other.host)
                     && port == other.port
                     && range == other.range
-                    && keepAliveMs == other.keepAliveMs;
+                    && keepAliveMs == other.keepAliveMs
+                    && maxTier == other.maxTier;
         }
 
         @Override
@@ -79,4 +81,7 @@ public sealed interface Packet {
     record Call(String targetName, CallAction action) implements Packet {}
 
     record CallState(String peerName, CallStateKind state) implements Packet {}
+
+    /** The player's guild prefix once the relay has looked it up; empty when they have no guild. */
+    record Guild(String prefix) implements Packet {}
 }

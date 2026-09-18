@@ -42,7 +42,7 @@ class ControlHandlerTest {
     private var playerLookups = ArrayList<CompletableFuture<String?>>()
     private val guilds = WynnApi({ uri ->
         if (uri.path.startsWith("/v3/player/")) CompletableFuture<String?>().also(playerLookups::add)
-        else CompletableFuture.completedFuture(guildMembers.joinToString(",", "{\"members\":{\"owner\":{", "}}}") { "\"$it\":{\"uuid\":\"x\"}" })
+        else CompletableFuture.completedFuture(guildMembers.joinToString(",", "{\"prefix\":\"GLD\",\"members\":{\"owner\":{", "}}}") { "\"$it\":{\"uuid\":\"x\"}" })
     })
 
     private fun answerPlayerLookup() = playerLookups.removeLastOrNull()?.complete("""{"guild":{"uuid":"18d19092-684b-427b-aa58-574230befe79","name":"G"}$playerStatus}""")
@@ -65,6 +65,7 @@ class ControlHandlerTest {
         it.hello(svcVersion = svcVersion)
         it.auth()
         answerPlayerLookup()
+        assertEquals(Packet.Guild("GLD"), it.readOutbound())
     }
 
     private fun EmbeddedChannel.auth(name: String = "Player", id: UUID = uuid): Packet.AuthResult? {
@@ -189,7 +190,9 @@ class ControlHandlerTest {
     fun `pending report outcomes follow the auth result`() {
         val id = moderation.createReport(NewReport(uuid, UUID.randomUUID(), "", "", "", null, null, emptyList(), null, null))
         moderation.markHandled(id, "modbob", Verdict.ACTIONED)
-        val ch = ready()
+        val ch = channel { uuid }
+        ch.hello()
+        ch.auth()
         assertEquals(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was actioned"), ch.readOutbound())
         assertNull(ch.readOutbound())
         ch.close()
@@ -270,6 +273,16 @@ class ControlHandlerTest {
     }
 
     @Test
+    fun `a player without a guild gets an empty guild prefix`() {
+        val ch = channel { uuid }
+        ch.hello()
+        ch.auth()
+        playerLookups.removeLast().complete("""{"guild":null}""")
+        assertEquals(Packet.Guild(""), ch.readOutbound())
+        assertNull(voice.sessionOf(uuid))
+    }
+
+    @Test
     fun `guild mute packets are answered with a result`() {
         guildMembers = setOf("Mate", "Player")
         val ch = ready()
@@ -325,6 +338,7 @@ class ControlHandlerTest {
         assertNull(ch.readOutbound())
         answerPlayerLookup()
         ch.runPendingTasks()
+        assertEquals(Packet.Guild("GLD"), ch.readOutbound())
         assertEquals(EndReason.WORLD_MISMATCH, ch.readOutbound<Packet.Ended>().reason)
         assertNull(voice.sessionOf(uuid))
         assertTrue(ch.isOpen)

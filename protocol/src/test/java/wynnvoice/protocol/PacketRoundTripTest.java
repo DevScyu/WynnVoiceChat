@@ -32,14 +32,14 @@ class PacketRoundTripTest {
                 new Auth("Player_One", UUID.randomUUID()),
                 new AuthResult(AuthStatus.SESSION_UNAVAILABLE),
                 new Join(VoiceTier.FRIENDS_AND_GUILD, "housing:Scyu_"),
-                new Secret(secret, "voice.example.org", 24454, 32.0, 1000),
+                new Secret(secret, "voice.example.org", 24454, 32.0, 1000, VoiceTier.FRIENDS_AND_GUILD),
                 new Update(VoiceTier.EVERYONE, "", true, true, false),
                 new World("WC12"),
                 new Position(-1234.5f, 64.25f, 8765.75f),
                 new Social(SocialKind.FRIENDS, SocialAction.ADD, List.of("Alice", "Bób", "")),
                 new Peers(List.of(
-                        new Peer(UUID.randomUUID(), "Alice", false, Relation.PARTY, true),
-                        new Peer(UUID.randomUUID(), "Bob", true, Relation.NONE, false))),
+                        new Peer(UUID.randomUUID(), "Alice", false, Relation.PARTY, true, false),
+                        new Peer(UUID.randomUUID(), "Bob", true, Relation.GUILD, false, true))),
                 new Ended(EndReason.WORLD_MISMATCH, "You are not on that world"),
                 new Block("Someone", false),
                 new Report("Someone", "slurs in voice"),
@@ -48,7 +48,8 @@ class PacketRoundTripTest {
                 new BlockListResult(List.of("Alice", "Bob")),
                 new GuildMute("Someone", true, 24),
                 new Call("Someone", CallAction.INVITE),
-                new CallState("Someone", CallStateKind.DND));
+                new CallState("Someone", CallStateKind.DND),
+                new Guild("ABC"));
     }
 
     @ParameterizedTest
@@ -70,7 +71,7 @@ class PacketRoundTripTest {
         Set<Class<?>> sampled = packets().map(Packet::getClass).collect(Collectors.toSet());
         Set<Class<?>> declared = Set.of(Packet.class.getPermittedSubclasses());
         assertEquals(declared, sampled);
-        assertEquals(20, declared.size());
+        assertEquals(21, declared.size());
     }
 
     @Test
@@ -104,7 +105,7 @@ class PacketRoundTripTest {
     @Test
     void rejectsWrongSizedServerIdAndSecret() {
         assertThrows(IllegalArgumentException.class, () -> new AuthChallenge(new byte[19]));
-        assertThrows(IllegalArgumentException.class, () -> new Secret(new byte[15], "h", 1, 1.0, 1));
+        assertThrows(IllegalArgumentException.class, () -> new Secret(new byte[15], "h", 1, 1.0, 1, VoiceTier.PARTY));
     }
 
     @Test

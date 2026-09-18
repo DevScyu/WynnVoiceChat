@@ -25,7 +25,8 @@ import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
 
 class VoiceSessionTest {
-    private static final Packet.Secret SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000);
+    private static final Packet.Secret SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000, VoiceTier.EVERYONE);
+    private static final Packet.Secret CAPPED_SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000, VoiceTier.FRIENDS_AND_GUILD);
 
     private final List<Packet> sent = new ArrayList<>();
     private final List<String> ended = new ArrayList<>();
@@ -37,6 +38,8 @@ class VoiceSessionTest {
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
     private final List<UUID> groups = new ArrayList<>();
+    private final List<String> groupNames = new ArrayList<>();
+    private final List<VoiceTier> maxTiers = new ArrayList<>();
     private final List<Packet.CallState> callStates = new ArrayList<>();
     private Set<String> party = Set.of();
     private Set<String> friends = Set.of();
@@ -78,6 +81,11 @@ class VoiceSessionTest {
         }
 
         @Override
+        public void maxTier(VoiceTier maxTier) {
+            maxTiers.add(maxTier);
+        }
+
+        @Override
         public void injectStates(List<VoiceChatPayloads.State> states) {
             injectedStates.add(states);
         }
@@ -98,8 +106,9 @@ class VoiceSessionTest {
         }
 
         @Override
-        public void injectGroup(UUID group) {
+        public void injectGroup(UUID group, String name) {
             groups.add(group);
+            groupNames.add(name);
         }
 
         @Override
@@ -192,8 +201,8 @@ class VoiceSessionTest {
     @Test
     void firstPeersAfterActivationAnnouncesCountsOnceUnlessEmpty() {
         joined();
-        Peer hearing = new Peer(UUID.randomUUID(), "H", false, Relation.NONE, true);
-        Peer deaf = new Peer(UUID.randomUUID(), "D", false, Relation.NONE, false);
+        Peer hearing = new Peer(UUID.randomUUID(), "H", false, Relation.NONE, true, false);
+        Peer deaf = new Peer(UUID.randomUUID(), "D", false, Relation.NONE, false, false);
         session.onPacket(new Packet.Peers(List.of()));
         session.onPacket(new Packet.Peers(List.of(hearing)));
         assertTrue(joinedLines.isEmpty(), "nobody here at join: no line, also not for later arrivals");
@@ -281,8 +290,8 @@ class VoiceSessionTest {
         others.put(npc, "Shopkeeper");
 
         session.onPacket(new Packet.Peers(List.of(
-                new Peer(reachable, "R", false, Relation.NONE, true),
-                new Peer(unreachable, "U", false, Relation.NONE, false))));
+                new Peer(reachable, "R", false, Relation.NONE, true, false),
+                new Peer(unreachable, "U", false, Relation.NONE, false, false))));
 
         assertEquals(List.of(
                 new VoiceChatPayloads.State(reachable, "R", false, false, null),
@@ -329,13 +338,13 @@ class VoiceSessionTest {
         joined();
         UUID pal = UUID.randomUUID();
         UUID stranger = UUID.randomUUID();
-        session.onPacket(new Packet.Peers(List.of(new Peer(stranger, "S", false, Relation.NONE, true))));
+        session.onPacket(new Packet.Peers(List.of(new Peer(stranger, "S", false, Relation.NONE, true, false))));
         assertTrue(groups.isEmpty());
 
         session.onPacket(new Packet.Peers(List.of(
-                new Peer(pal, "P", false, Relation.PARTY, true),
-                new Peer(stranger, "S", false, Relation.NONE, true))));
-        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+                new Peer(pal, "P", false, Relation.PARTY, true, false),
+                new Peer(stranger, "S", false, Relation.NONE, true, false))));
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true, false))));
         assertEquals(List.of(VoiceSession.PARTY_GROUP), groups);
         assertEquals(List.of(
                 new VoiceChatPayloads.State(pal, "P", false, false, VoiceSession.PARTY_GROUP),
@@ -344,10 +353,10 @@ class VoiceSessionTest {
         session.onPacket(new Packet.Peers(List.of()));
         assertEquals(Arrays.asList(VoiceSession.PARTY_GROUP, null), groups);
 
-        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true, false))));
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         session.onPacket(SECRET);
-        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true, false))));
         assertEquals(Arrays.asList(VoiceSession.PARTY_GROUP, null, VoiceSession.PARTY_GROUP, VoiceSession.PARTY_GROUP), groups, "a fresh SVC connection starts outside the group");
     }
 
@@ -369,7 +378,7 @@ class VoiceSessionTest {
     void anActiveCallPlacesThePeerInTheCallGroupUntilItEndsAndPartyWins() {
         joined();
         UUID friend = UUID.randomUUID();
-        Peer friendPeer = new Peer(friend, "F", false, Relation.FRIEND, true);
+        Peer friendPeer = new Peer(friend, "F", false, Relation.FRIEND, true, false);
         session.onPacket(new Packet.Peers(List.of(friendPeer)));
         assertTrue(groups.isEmpty());
 
@@ -378,7 +387,7 @@ class VoiceSessionTest {
         session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
         assertEquals(List.of(VoiceSession.CALL_GROUP), groups, "the group opens without waiting for peers");
         assertEquals(new VoiceChatPayloads.State(friend, "F", false, false, VoiceSession.CALL_GROUP), injectedStates.get(injectedStates.size() - 1).get(0));
-        session.onPacket(new Packet.Peers(List.of(friendPeer, new Peer(UUID.randomUUID(), "P", false, Relation.PARTY, true))));
+        session.onPacket(new Packet.Peers(List.of(friendPeer, new Peer(UUID.randomUUID(), "P", false, Relation.PARTY, true, false))));
         assertEquals(List.of(VoiceSession.CALL_GROUP, VoiceSession.PARTY_GROUP), groups, "party wins");
 
         session.onPacket(new Packet.Peers(List.of(friendPeer)));
@@ -410,15 +419,16 @@ class VoiceSessionTest {
         UUID mate = UUID.randomUUID();
         UUID off = UUID.randomUUID();
         UUID pal = UUID.randomUUID();
-        Peer matePeer = new Peer(mate, "M", false, Relation.GUILD, true);
-        Peer offPeer = new Peer(off, "O", false, Relation.GUILD, false);
+        Peer matePeer = new Peer(mate, "M", false, Relation.GUILD, true, true);
+        Peer offPeer = new Peer(off, "O", false, Relation.GUILD, true, false);
         session.onPacket(new Packet.Peers(List.of(matePeer, offPeer)));
         assertEquals(List.of(VoiceSession.GUILD_GROUP), groups);
+        assertEquals(List.of("Guild"), groupNames, "no prefix yet");
         assertEquals(List.of(
                 new VoiceChatPayloads.State(mate, "M", false, false, VoiceSession.GUILD_GROUP),
-                new VoiceChatPayloads.State(off, "O", true, false, null)), injectedStates.get(0));
+                new VoiceChatPayloads.State(off, "O", false, false, null)), injectedStates.get(0), "a mate with the channel off stays out of the group even when audible");
 
-        session.onPacket(new Packet.Peers(List.of(matePeer, new Peer(pal, "P", false, Relation.PARTY, true))));
+        session.onPacket(new Packet.Peers(List.of(matePeer, new Peer(pal, "P", false, Relation.PARTY, true, false))));
         assertEquals(List.of(VoiceSession.GUILD_GROUP, VoiceSession.PARTY_GROUP), groups, "party wins");
         assertEquals(VoiceSession.GUILD_GROUP, injectedStates.get(1).get(0).group(), "guild mates still show in their group");
 
@@ -429,5 +439,48 @@ class VoiceSessionTest {
         assertEquals(new VoiceChatPayloads.State(mate, "M", false, false, null), injectedStates.get(injectedStates.size() - 1).get(0));
         session.setGuildChannel(false);
         assertEquals(1, sent.size(), "unchanged toggle sends nothing");
+    }
+
+    @Test
+    void guildGroupIsNamedAfterThePrefixAndRenamedWhenItArrivesLate() {
+        session.setGuildChannel(true);
+        joined();
+        Peer mate = new Peer(UUID.randomUUID(), "M", false, Relation.GUILD, true, true);
+        session.onPacket(new Packet.Peers(List.of(mate)));
+        assertEquals(List.of("Guild"), groupNames);
+
+        session.onPacket(new Packet.Guild("ABC"));
+        assertEquals(List.of(VoiceSession.GUILD_GROUP, VoiceSession.GUILD_GROUP), groups, "re-added under the new name");
+        assertEquals(List.of("Guild", "[ABC]"), groupNames);
+
+        session.onPacket(new Packet.Peers(List.of()));
+        session.onPacket(new Packet.Guild("XYZ"));
+        assertEquals(3, groups.size(), "not in the guild group: nothing to rename");
+        session.onPacket(new Packet.Peers(List.of(mate)));
+        assertEquals("[XYZ]", groupNames.get(groupNames.size() - 1));
+
+        session.onPacket(new Packet.Guild(""));
+        assertEquals("Guild", groupNames.get(groupNames.size() - 1), "left the guild: back to the fallback");
+    }
+
+    @Test
+    void relayCapIsRememberedAndReportedOnceWhenItChanges() {
+        assertEquals(VoiceTier.EVERYONE, session.maxTier(), "assumed uncapped before the first Secret");
+        session.onAuthenticated("WC1", "");
+        session.onPacket(SECRET);
+        assertTrue(maxTiers.isEmpty(), "an uncapped relay changes nothing");
+
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(CAPPED_SECRET);
+        assertEquals(VoiceTier.FRIENDS_AND_GUILD, session.maxTier());
+        assertEquals(List.of(VoiceTier.FRIENDS_AND_GUILD), maxTiers);
+
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(CAPPED_SECRET);
+        assertEquals(List.of(VoiceTier.FRIENDS_AND_GUILD), maxTiers, "the same cap again is not news");
+
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        assertEquals(List.of(VoiceTier.FRIENDS_AND_GUILD, VoiceTier.EVERYONE), maxTiers, "a lifted cap is");
     }
 }

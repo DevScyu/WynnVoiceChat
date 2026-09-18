@@ -237,7 +237,11 @@ class DiscordModeration(
                 ban(uuid, days, args["reason"]?.asString ?: "", moderator)
                 bans.getValue(BanAction.BAN).getValue(BanSource.COMMAND).increment()
                 logger.info("{} banned {} {}", moderator.name, player, duration(days))
-                ephemeral("Banned $player ${duration(days)}.")
+                val actioned = moderation.openReportsAgainst(uuid).onEach { reportId ->
+                    moderation.markHandled(reportId, moderator.name, Verdict.ACTIONED)
+                    voice.reportHandled(reportId)
+                }
+                ephemeral("Banned $player ${duration(days)}." + if (actioned.isEmpty()) "" else " Actioned ${actioned.size} open report(s): ${actioned.joinToString { "#$it" }}.")
             }
             "unban" -> resolving(player) { uuid ->
                 val lifted = moderation.unban(uuid) > 0

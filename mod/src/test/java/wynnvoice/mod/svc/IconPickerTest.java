@@ -9,7 +9,7 @@ import wynnvoice.protocol.Relation;
 
 class IconPickerTest {
     private static Peer peer(Relation relation, boolean reachable, boolean disabled) {
-        return new Peer(UUID.randomUUID(), "p", disabled, relation, reachable);
+        return new Peer(UUID.randomUUID(), "p", disabled, relation, reachable, false);
     }
 
     @Test

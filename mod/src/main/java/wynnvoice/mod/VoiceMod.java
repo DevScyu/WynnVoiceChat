@@ -143,7 +143,7 @@ public final class VoiceMod implements ClientModInitializer {
             disconnect();
             return;
         }
-        if (enteredWorld) showNotice(config.pendingNotice(svcInstalled));
+        if (enteredWorld) showNotice(pendingNotice());
         if (client != null && !state.world().equals(connectedWorld)) disconnect();
         if (client == null) {
             if (!refused && config.canConnect()) connect(state);
@@ -179,7 +179,7 @@ public final class VoiceMod implements ClientModInitializer {
                     chat(Component.translatable("wynnvoice.command.tierSet", config.tier.name()), ChatFormatting.YELLOW);
                 }
                 saveConfig();
-                if (session != null) session.setTier(config.effectiveTier());
+                if (session != null) session.setTier(config.effectiveTier(relayMaxTier()));
             });
             case GUILD_WARNING -> ConsentScreen.guildWarning(accepted -> {
                 if (accepted) {
@@ -203,15 +203,30 @@ public final class VoiceMod implements ClientModInitializer {
     public void setTier(VoiceTier tier) {
         config.tier = tier;
         saveConfig();
-        Notice notice = config.pendingNotice(svcInstalled);
+        Notice notice = pendingNotice();
         if (notice == Notice.EVERYONE_WARNING && worldTracker.state().onWorld()) showNotice(notice);
-        if (session != null) session.setTier(config.effectiveTier());
+        if (session != null) session.setTier(config.effectiveTier(relayMaxTier()));
+        warnIfCapped();
+    }
+
+    private Notice pendingNotice() {
+        return config.pendingNotice(svcInstalled, relayMaxTier());
+    }
+
+    /** The cap learnt from the current session's {@code Secret}; assumed uncapped until then. */
+    private VoiceTier relayMaxTier() {
+        return session == null ? VoiceTier.EVERYONE : session.maxTier();
+    }
+
+    private void warnIfCapped() {
+        VoiceTier cap = relayMaxTier();
+        if (config.tier.compareTo(cap) > 0) chat(Component.translatable("wynnvoice.tier.capped", cap.name()), ChatFormatting.YELLOW);
     }
 
     public void setGuildChannel(boolean on) {
         config.guildChannel = on;
         saveConfig();
-        Notice notice = config.pendingNotice(svcInstalled);
+        Notice notice = pendingNotice();
         if (notice == Notice.GUILD_WARNING && worldTracker.state().onWorld()) showNotice(notice);
         if (session != null) session.setGuildChannel(config.effectiveGuildChannel());
     }
@@ -255,7 +270,7 @@ public final class VoiceMod implements ClientModInitializer {
             disconnect();
             return;
         }
-        if (worldTracker.state().onWorld()) showNotice(config.pendingNotice(svcInstalled));
+        if (worldTracker.state().onWorld()) showNotice(pendingNotice());
         connectIfAllowed();
     }
 
@@ -275,7 +290,7 @@ public final class VoiceMod implements ClientModInitializer {
                 FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow().getMetadata().getVersion().getFriendlyString());
         VoiceClient.SessionJoiner joiner = serverId -> minecraft.services().sessionService()
                 .joinServer(minecraft.getUser().getProfileId(), minecraft.getUser().getAccessToken(), serverId);
-        VoiceSession newSession = new VoiceSession(config.effectiveTier(), new Effects(minecraft));
+        VoiceSession newSession = new VoiceSession(config.effectiveTier(VoiceTier.EVERYONE), new Effects(minecraft));
         newSession.setSvcDisabled(svcDisabled);
         newSession.setGuildChannel(config.effectiveGuildChannel());
         newSession.setDnd(config.dnd);
@@ -427,6 +442,12 @@ public final class VoiceMod implements ClientModInitializer {
         }
 
         @Override
+        public void maxTier(VoiceTier maxTier) {
+            instance.session.setTier(instance.config.effectiveTier(maxTier));
+            instance.warnIfCapped();
+        }
+
+        @Override
         public void injectStates(List<VoiceChatPayloads.State> states) {
             VoiceChatBridge.inject(VoiceChatPayloads.STATES, buf -> VoiceChatPayloads.writeStates(buf, states));
         }
@@ -454,15 +475,9 @@ public final class VoiceMod implements ClientModInitializer {
         }
 
         @Override
-        public void injectGroup(UUID group) {
-            // ponytail: the guild group is named "Guild", not after the prefix; the relay never tells the mod which guild it is in
-            if (group != null) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, group, groupName(group)));
+        public void injectGroup(UUID group, String name) {
+            if (group != null) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, group, name));
             VoiceChatBridge.inject(VoiceChatPayloads.JOINED_GROUP, buf -> VoiceChatPayloads.writeJoinedGroup(buf, group));
-        }
-
-        private static String groupName(UUID group) {
-            if (group.equals(VoiceSession.PARTY_GROUP)) return "Party";
-            return group.equals(VoiceSession.CALL_GROUP) ? "Call" : "Guild";
         }
 
         @Override

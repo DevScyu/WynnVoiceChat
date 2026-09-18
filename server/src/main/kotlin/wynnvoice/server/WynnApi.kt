@@ -77,7 +77,7 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
     }
     class PlayerInfo(val guild: UUID?, val online: Boolean?, val server: String?, val restricted: Boolean)
     /** [members] maps player name to rank (`owner`, `chief`, `strategist`, `captain`, `recruiter`, `recruit`). */
-    class Guild(val uuid: UUID, val members: Map<String, String>)
+    class Guild(val uuid: UUID, val prefix: String, val members: Map<String, String>)
 
     private class Cached<T>(val expiresAt: Long, val value: CompletableFuture<T>)
 
@@ -91,7 +91,7 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         return playerOf(player).thenCompose { info ->
             when (val guild = info?.guild) {
                 null -> CompletableFuture.completedFuture(null as Guild?).also { if (!fresh) lookups.getValue(Lookup.NO_GUILD).increment() }
-                else -> cached(byGuild, guild, null) { fetch("/v3/guild/uuid/$guild").thenApply { json -> json?.let { Guild(guild, parseMembers(it)) } } }
+                else -> cached(byGuild, guild, null) { fetch("/v3/guild/uuid/$guild").thenApply { json -> json?.let { Guild(guild, parsePrefix(it), parseMembers(it)) } } }
             }
         }
     }
@@ -140,6 +140,9 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
                 restricted = player["restrictions"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("onlineStatus")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
             )
         }
+
+        fun parsePrefix(guildJson: String): String =
+            JsonParser.parseString(guildJson).asJsonObject["prefix"]?.takeIf { it.isJsonPrimitive }?.asString ?: ""
 
         /** `members` is keyed by rank, each rank by player name. */
         fun parseMembers(guildJson: String): Map<String, String> =

@@ -116,8 +116,9 @@ Three mods go into your `mods` folder:
 3. The WynnVoice jar from [Modrinth][modrinth-url] or the
    [releases page](https://github.com/DevScyu/WynnVoiceChat/releases)
 
-Start the game once, then point `relayHost` in `config/wynnvoice.json` at the relay you use
-(see [Usage](#usage); the default is `localhost`). Join Wynncraft and accept the consent notice.
+The mod talks to the public relay at `relay.wynnvoice.com` out of the box; `relayHost` in
+`config/wynnvoice.json` (see [Usage](#usage)) only needs changing to use a relay you run
+yourself. Join Wynncraft and accept the consent notice.
 
 To build the mod yourself instead:
 
@@ -264,7 +265,7 @@ Minecraft directory, created on first launch:
 
 ```json
 {
-  "relayHost": "localhost",
+  "relayHost": "relay.wynnvoice.com",
   "relayPort": 9100,
   "enabled": true,
   "tier": "PARTY",
@@ -315,10 +316,11 @@ reads your friend list from `/friend list`, and the relay looks your guild up on
 public API (cached ten minutes), so a client can never claim a guild it is not in. Choosing
 `EVERYONE` shows the rules once; until you accept them (`everyoneWarningAccepted`) the relay is
 told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may additionally cap the
-audience at friends & guild (`VOICE_EVERYONE_ENABLED`).
+audience at friends & guild (`VOICE_EVERYONE_ENABLED`); the mod then skips the rules screen and
+prints the cap once per session instead.
 
 The guild channel (`guildChannel`) works like the party: every guild member who also turned it on
-hears you on any world, shown as a read-only "Guild" group in Simple Voice Chat, unless you are in
+hears you on any world, shown as a read-only group named after your guild prefix in Simple Voice Chat, unless you are in
 a party, which takes precedence. Turning it on shows a notice once (`guildWarningAccepted`); until
 you accept it the relay is told the channel is off. Your guild's owner and chiefs, as reported by
 the Wynncraft API, can mute a member in the channel: a muted member still hears the channel and is

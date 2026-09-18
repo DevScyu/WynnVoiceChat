@@ -96,6 +96,7 @@ class WynnApiTest {
         serve("/v3/player/$player" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
         val guild = resolver.guildOf(player).join()!!
         assertEquals(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), guild.uuid)
+        assertEquals("WYNN", guild.prefix)
         assertEquals(setOf("Salted", "Eilaa", "Grian"), guild.members.keys)
         assertEquals(listOf(
             "https://api.wynncraft.com/v3/player/$player",

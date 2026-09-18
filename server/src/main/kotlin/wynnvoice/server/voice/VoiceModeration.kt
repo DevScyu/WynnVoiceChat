@@ -45,8 +45,8 @@ data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val e
 class GuildMute(val guildId: UUID, val expiresAt: Long?)
 
 enum class DbOp {
-    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, MARK_HANDLED, ATTACH_AUDIO,
-    PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
+    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
+    ATTACH_AUDIO, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
 }
 
 /**
@@ -208,6 +208,13 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     fun reportParties(reportId: Int): Pair<UUID, UUID>? = db(DbOp.REPORT_PARTIES) {
         VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()
             ?.let { it[VoiceReportsTable.reporterId] to it[VoiceReportsTable.targetId] }
+    }
+
+    /** Ids of unhandled reports against [targetId]. */
+    fun openReportsAgainst(targetId: UUID): List<Int> = db(DbOp.OPEN_REPORTS) {
+        VoiceReportsTable.selectAll()
+            .where { (VoiceReportsTable.targetId eq targetId) and VoiceReportsTable.outcome.isNull() }
+            .map { it[VoiceReportsTable.id].value }
     }
 
     fun markHandled(reportId: Int, by: String, verdict: Verdict) {

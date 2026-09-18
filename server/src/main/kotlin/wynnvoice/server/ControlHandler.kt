@@ -125,8 +125,8 @@ class ControlHandler(
                     voice.connected(verifiedPlayer)
                     wynn.guildOf(auth.uuid).thenAccept { guild ->
                         verifiedPlayer.guildId = guild?.uuid
-                        verifiedPlayer.guildRank = guild?.members?.get(auth.username)
-                        verifiedPlayer.guildMembers = guild?.members?.keys ?: emptySet()
+                        verifiedPlayer.guildRanks = guild?.members ?: emptyMap()
+                        verifiedPlayer.send(Packet.Guild(guild?.prefix ?: ""))
                     }
                     onAuthenticated(this)
                 }

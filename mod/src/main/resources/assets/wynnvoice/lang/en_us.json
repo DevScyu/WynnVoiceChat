@@ -35,6 +35,7 @@
   "wynnvoice.command.notConnected": "Not connected to the voice relay.",
   "wynnvoice.command.badTier": "Unknown tier. Use party, friends_and_guild or everyone.",
   "wynnvoice.command.tierSet": "Voice audience set to %s.",
+  "wynnvoice.tier.capped": "The relay currently caps voice at %s.",
   "wynnvoice.command.guildOn": "Guild channel on.",
   "wynnvoice.command.guildOff": "Guild channel off.",
   "wynnvoice.command.dndOn": "Do not disturb on.",
