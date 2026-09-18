@@ -29,6 +29,12 @@ public final class VoiceSession {
         /** The relay answered a block, unblock or report request. */
         void result(Packet.Result result);
 
+        /** The relay answered a block list request. */
+        void blockList(List<String> names);
+
+        /** First peer list of a session: how many are on voice on this world and how many of them can hear us. */
+        void joined(int onVoice, int canHear);
+
         void injectSecret(Packet.Secret secret);
 
         void injectStates(List<VoiceChatPayloads.State> states);
@@ -57,6 +63,7 @@ public final class VoiceSession {
     private volatile boolean svcDisabled;
     private Packet.Position lastPosition;
     private List<Peer> lastPeers = List.of();
+    private boolean peersAnnounced;
     private EndReason lastRefusal;
 
     public VoiceSession(VoiceTier tier, Effects effects) {
@@ -72,6 +79,10 @@ public final class VoiceSession {
 
     public boolean isActive() {
         return active;
+    }
+
+    public List<Peer> lastPeers() {
+        return lastPeers;
     }
 
     public void onAuthenticated(String world, String instance) {
@@ -109,14 +120,21 @@ public final class VoiceSession {
             case Packet.Secret secret -> {
                 active = true;
                 lastPosition = null;
+                lastPeers = List.of();
+                peersAnnounced = false;
                 inPartyGroup = false;
                 effects.injectSecret(secret);
                 if (svcDisabled || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Result result -> effects.result(result);
+            case Packet.BlockListResult blocks -> effects.blockList(blocks.names());
             case Packet.Peers peers -> {
                 lastPeers = peers.peers();
+                if (!peersAnnounced) {
+                    peersAnnounced = true;
+                    if (!lastPeers.isEmpty()) effects.joined(lastPeers.size(), (int) lastPeers.stream().filter(Peer::reachable).count());
+                }
                 boolean anyParty = lastPeers.stream().anyMatch(peer -> peer.relation() == Relation.PARTY);
                 if (anyParty != inPartyGroup) {
                     inPartyGroup = anyParty;

@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import kotlin.test.BeforeTest
@@ -50,8 +51,11 @@ class VoiceManagerTest {
     /** Names Mojang knows that are not on voice. */
     private val profiles = HashMap<String, UUID>()
     private val mojang = ApiFetcher { uri ->
-        val id = profiles[uri.path.substringAfterLast('/')]
-        CompletableFuture.completedFuture(id?.let { "{\"id\":\"${it.toString().replace("-", "")}\",\"name\":\"x\"}" })
+        val key = uri.path.substringAfterLast('/')
+        if (key == "boom") return@ApiFetcher CompletableFuture.failedFuture(IOException("HTTP 429"))
+        val profile = if (uri.host == "sessionserver.mojang.com") profiles.entries.firstOrNull { it.value.toString().replace("-", "") == key }
+        else profiles.entries.firstOrNull { it.key == key }
+        CompletableFuture.completedFuture(profile?.let { "{\"id\":\"${it.value.toString().replace("-", "")}\",\"name\":\"${it.key}\"}" })
     }
 
     private val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
@@ -449,6 +453,25 @@ class VoiceManagerTest {
         assertFalse(last<Packet.Result>(a).ok)
         manager.block(a, "bad name!", blocked = true)
         assertFalse(last<Packet.Result>(a).ok)
+    }
+
+    @Test
+    fun `block list resolves names via live sessions then mojang and falls back to the uuid`() {
+        val a = player("A")
+        val b = player("B")
+        connect(a, addrA)
+        connect(b, addrB)
+        profiles["Carl"] = UUID.randomUUID()
+        val unknown = UUID.fromString("ffffffff-0000-4000-8000-000000000000")
+        moderation.block(a.uuid, b.uuid)
+        moderation.block(a.uuid, profiles["Carl"]!!)
+        moderation.block(a.uuid, unknown)
+
+        manager.blockList(a)
+        assertEquals(Packet.BlockListResult(listOf("B", "Carl", unknown.toString())), last<Packet.BlockListResult>(a))
+
+        manager.blockList(b)
+        assertEquals(Packet.BlockListResult(emptyList()), last<Packet.BlockListResult>(b))
     }
 
     @Test

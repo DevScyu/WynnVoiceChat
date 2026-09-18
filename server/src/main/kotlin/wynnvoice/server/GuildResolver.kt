@@ -40,14 +40,14 @@ class HttpApiFetcher(
 
     private fun record(uri: URI, response: HttpResponse<String>?, nanos: Long) {
         val endpoint = endpointOf(uri) ?: return
-        val timers = if (endpoint == "profile_by_name") MOJANG else WYNN
+        val timers = if (endpoint.startsWith("profile_by_")) MOJANG else WYNN
         timers.getValue(endpoint).getValue(Metrics.httpOutcome(response?.statusCode() ?: 0)).record(nanos, TimeUnit.NANOSECONDS)
         val remaining = response?.headers()?.firstValue("RateLimit-Remaining")?.orElse(null)?.toDoubleOrNull() ?: return
         WYNN_RATELIMIT_REMAINING[endpoint]?.set(remaining)
     }
 
     companion object {
-        private val MOJANG = Metrics.httpTimers("voice_mojang_request_seconds", "has_joined", "profile_by_name")
+        private val MOJANG = Metrics.httpTimers("voice_mojang_request_seconds", "has_joined", "profile_by_name", "profile_by_uuid")
         private val WYNN = Metrics.httpTimers("voice_wynn_api_request_seconds", "player", "guild")
         /** Set from the `RateLimit-Remaining` header; the bucket is named after the endpoint. */
         private val WYNN_RATELIMIT_REMAINING = listOf("player", "guild").associateWith { endpoint ->
@@ -56,6 +56,7 @@ class HttpApiFetcher(
 
         fun endpointOf(uri: URI): String? = when {
             uri.host == "api.mojang.com" -> "profile_by_name"
+            uri.host == "sessionserver.mojang.com" && uri.path.startsWith("/session/minecraft/profile/") -> "profile_by_uuid"
             uri.host == "api.wynncraft.com" && uri.path.startsWith("/v3/player/") -> "player"
             uri.host == "api.wynncraft.com" && uri.path.startsWith("/v3/guild/") -> "guild"
             else -> null

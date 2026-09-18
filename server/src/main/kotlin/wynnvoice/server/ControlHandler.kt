@@ -61,6 +61,7 @@ class ControlHandler(
             is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
             is Packet.Social -> player.apply(packet)
             is Packet.Block -> voice.block(player, packet.targetName, packet.blocked)
+            is Packet.BlockList -> voice.blockList(player)
             is Packet.Report -> voice.report(player, packet.targetName, packet.reason)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }

@@ -187,6 +187,8 @@ class ControlHandlerTest {
         assertEquals(Packet.Result(ResultKind.BLOCK, false, "You cannot block yourself"), ch.readOutbound())
         ch.writeInbound(Packet.Report("Nobody", "spam"))
         assertEquals(Packet.Result(ResultKind.REPORT, false, "Nobody is not on voice chat"), ch.readOutbound())
+        ch.writeInbound(Packet.BlockList())
+        assertEquals(Packet.BlockListResult(emptyList()), ch.readOutbound())
         assertTrue(ch.isOpen)
     }
 

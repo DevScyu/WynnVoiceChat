@@ -105,6 +105,12 @@ public final class PacketCodec {
                 out.writeBoolean(p.ok());
                 writeString(out, p.message());
             }
+            case BlockList p -> out.writeByte(15);
+            case BlockListResult p -> {
+                out.writeByte(16);
+                writeVarInt(out, p.names().size());
+                p.names().forEach(name -> writeString(out, name));
+            }
         }
     }
 
@@ -120,14 +126,7 @@ public final class PacketCodec {
             case 6 -> new Update(readEnum(in, VoiceTier.class), readString(in), in.readBoolean(), in.readBoolean(), in.readBoolean());
             case 7 -> new World(readString(in));
             case 8 -> new Position(in.readFloat(), in.readFloat(), in.readFloat());
-            case 9 -> {
-                SocialKind kind = readEnum(in, SocialKind.class);
-                SocialAction action = readEnum(in, SocialAction.class);
-                int size = readListSize(in);
-                List<String> names = new ArrayList<>(size);
-                for (int i = 0; i < size; i++) names.add(readString(in));
-                yield new Social(kind, action, names);
-            }
+            case 9 -> new Social(readEnum(in, SocialKind.class), readEnum(in, SocialAction.class), readStrings(in));
             case 10 -> {
                 int size = readListSize(in);
                 List<Peer> peers = new ArrayList<>(size);
@@ -140,6 +139,8 @@ public final class PacketCodec {
             case 12 -> new Block(readString(in), in.readBoolean());
             case 13 -> new Report(readString(in), readString(in));
             case 14 -> new Result(readEnum(in, ResultKind.class), in.readBoolean(), readString(in));
+            case 15 -> new BlockList();
+            case 16 -> new BlockListResult(readStrings(in));
             default -> throw new DecoderException("Unknown packet id " + id);
         };
     }
@@ -180,6 +181,13 @@ public final class PacketCodec {
         byte[] bytes = new byte[length];
         in.readBytes(bytes);
         return bytes;
+    }
+
+    private static List<String> readStrings(ByteBuf in) {
+        int size = readListSize(in);
+        List<String> strings = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) strings.add(readString(in));
+        return strings;
     }
 
     private static int readListSize(ByteBuf in) {

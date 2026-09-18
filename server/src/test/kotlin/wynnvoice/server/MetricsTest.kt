@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import wynnvoice.protocol.AuthStatus
+import wynnvoice.protocol.Protocol
 import wynnvoice.server.Metrics.counters
 import wynnvoice.server.Metrics.sloTimer
 
@@ -46,7 +47,7 @@ class MetricsTest {
             "process_cpu_usage", "process_uptime_seconds", "process_files_open_files", "jvm_info", "netty_allocator_memory_used")) {
             assertTrue(scrape.contains(series), series)
         }
-        assertTrue(Regex("^voice_build_info\\{.*protocol_version=\"1\".*svc_compat=\"20\".*version=\"dev\".*} 1$", RegexOption.MULTILINE).containsMatchIn(scrape), scrape)
+        assertTrue(Regex("^voice_build_info\\{.*protocol_version=\"${Protocol.VERSION}\".*svc_compat=\"20\".*version=\"dev\".*} 1$", RegexOption.MULTILINE).containsMatchIn(scrape), scrape)
     }
 
     @Test

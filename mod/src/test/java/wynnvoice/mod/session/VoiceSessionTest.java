@@ -28,6 +28,8 @@ class VoiceSessionTest {
     private final List<Packet> sent = new ArrayList<>();
     private final List<String> ended = new ArrayList<>();
     private final List<Packet.Result> results = new ArrayList<>();
+    private final List<List<String>> blockLists = new ArrayList<>();
+    private final List<int[]> joinedLines = new ArrayList<>();
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
@@ -49,6 +51,16 @@ class VoiceSessionTest {
         @Override
         public void result(Packet.Result result) {
             results.add(result);
+        }
+
+        @Override
+        public void blockList(List<String> names) {
+            blockLists.add(names);
+        }
+
+        @Override
+        public void joined(int onVoice, int canHear) {
+            joinedLines.add(new int[] {onVoice, canHear});
         }
 
         @Override
@@ -135,6 +147,33 @@ class VoiceSessionTest {
 
         session.onClosed();
         assertFalse(session.request(new Packet.Block("Bob", false)));
+    }
+
+    @Test
+    void blockListResultIsSurfaced() {
+        joined();
+        session.onPacket(new Packet.BlockListResult(List.of("Bob")));
+        assertEquals(List.of(List.of("Bob")), blockLists);
+    }
+
+    @Test
+    void firstPeersAfterActivationAnnouncesCountsOnceUnlessEmpty() {
+        joined();
+        Peer hearing = new Peer(UUID.randomUUID(), "H", false, Relation.NONE, true);
+        Peer deaf = new Peer(UUID.randomUUID(), "D", false, Relation.NONE, false);
+        session.onPacket(new Packet.Peers(List.of()));
+        session.onPacket(new Packet.Peers(List.of(hearing)));
+        assertTrue(joinedLines.isEmpty(), "nobody here at join: no line, also not for later arrivals");
+
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        assertEquals(List.of(), session.lastPeers(), "stale roster cleared on a fresh session");
+        session.onPacket(new Packet.Peers(List.of(hearing, deaf)));
+        session.onPacket(new Packet.Peers(List.of(hearing)));
+        assertEquals(1, joinedLines.size());
+        assertEquals(2, joinedLines.get(0)[0]);
+        assertEquals(1, joinedLines.get(0)[1]);
+        assertEquals(List.of(hearing), session.lastPeers());
     }
 
     @Test

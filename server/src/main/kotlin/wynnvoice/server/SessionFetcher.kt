@@ -37,11 +37,13 @@ class MojangSessionFetcher(
     }
 
     companion object {
-        private val HAS_JOINED = Metrics.httpTimers("voice_mojang_request_seconds", "has_joined", "profile_by_name").getValue("has_joined")
+        private val HAS_JOINED = Metrics.httpTimers("voice_mojang_request_seconds", "has_joined", "profile_by_name", "profile_by_uuid").getValue("has_joined")
 
         fun parseProfileId(json: String): UUID? {
             val hex = JsonParser.parseString(json).asJsonObject["id"]?.asString?.takeIf { it.length == 32 } ?: return null
             return UUID(hex.substring(0, 16).toULong(16).toLong(), hex.substring(16).toULong(16).toLong())
         }
+
+        fun parseProfileName(json: String): String? = JsonParser.parseString(json).asJsonObject["name"]?.asString
     }
 }

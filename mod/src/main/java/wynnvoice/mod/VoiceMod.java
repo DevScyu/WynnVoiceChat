@@ -36,6 +36,7 @@ import wynnvoice.mod.wynn.PartyTracker;
 import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
 import wynnvoice.protocol.Packet;
+import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
 
@@ -187,6 +188,11 @@ public final class VoiceMod implements ClientModInitializer {
         return session != null && session.request(packet);
     }
 
+    /** Voice users on this world from the last {@code Peers}; null while no session is active. */
+    public List<Peer> roster() {
+        return session != null && session.isActive() ? session.lastPeers() : null;
+    }
+
     public void setEnabled(boolean enabled) {
         config.enabled = enabled;
         saveConfig();
@@ -336,6 +342,18 @@ public final class VoiceMod implements ClientModInitializer {
         @Override
         public void result(Packet.Result result) {
             VoiceMod.chat(Component.literal(result.message()), result.ok() ? ChatFormatting.GREEN : ChatFormatting.RED);
+        }
+
+        @Override
+        public void blockList(List<String> names) {
+            VoiceMod.chat(names.isEmpty()
+                    ? Component.translatable("wynnvoice.blocks.empty")
+                    : Component.translatable("wynnvoice.blocks", String.join(", ", names)), ChatFormatting.GREEN);
+        }
+
+        @Override
+        public void joined(int onVoice, int canHear) {
+            VoiceMod.chat(Component.translatable("wynnvoice.joined", onVoice, canHear), ChatFormatting.GRAY);
         }
 
         @Override

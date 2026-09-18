@@ -67,4 +67,8 @@ public sealed interface Packet {
     record Report(String targetName, String reason) implements Packet {}
 
     record Result(ResultKind kind, boolean ok, String message) implements Packet {}
+
+    record BlockList() implements Packet {}
+
+    record BlockListResult(List<String> names) implements Packet {}
 }

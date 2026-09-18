@@ -275,9 +275,13 @@ immediately.
 
 Joining a world connects to the relay and authenticates through Mojang. If the relay refuses
 the connection you get one chat line explaining why; leaving the world closes the connection.
+Once connected, one grey line says how many players are on voice on your world and how many of
+them can hear you (nothing is printed when nobody is).
 
 | Command                                                   | Effect                                                    |
 |-----------------------------------------------------------|-----------------------------------------------------------|
+| `/wynnvoice who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
+| `/wynnvoice blocks`                                       | List the players you have blocked                         |
 | `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
 | `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience    |
 | `/wynnvoice unblock <player>`                             | Lift a block                                              |

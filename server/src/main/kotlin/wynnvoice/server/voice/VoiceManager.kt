@@ -103,6 +103,8 @@ class VoiceManager(
     private val reportAudioBytes = DistributionSummary.builder("voice_report_audio_bytes").register(registry)
     private val blocks = registry.counters<BlockAction>("voice_blocks_total", "action")
     private val bansActive = AtomicInteger()
+    // ponytail: names cached for the process lifetime; Mojang rate-limits repeat profile lookups per uuid
+    private val profileNames = ConcurrentHashMap<UUID, String>()
 
     init {
         for (tier in VoiceTier.entries) Gauge.builder("voice_sessions") { sessions.values.count { it.tier == tier } }.tag("tier", tier.name).register(registry)
@@ -117,6 +119,7 @@ class VoiceManager(
         const val REPORT_WINDOW_MS = 120_000L
         private const val MAX_REASON_LENGTH = 500
         private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
+        private const val SESSION_PROFILE_URL = "https://sessionserver.mojang.com/session/minecraft/profile/"
         private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
         /** World is a client-supplied string; only real Wynncraft worlds become label values. */
         private val WORLD = Regex("WC\\d{1,3}")
@@ -209,6 +212,26 @@ class VoiceManager(
                 }
             }
         }
+    }
+
+    fun blockList(player: Player) {
+        val names = moderation.blocksOf(player.uuid).map(::resolveName)
+        CompletableFuture.allOf(*names.toTypedArray()).whenComplete { _, _ ->
+            player.send(Packet.BlockListResult(names.map { it.join() }.sortedBy { it.lowercase() }))
+        }
+    }
+
+    /** Live voice sessions first, then Mojang's session profile; the uuid itself when neither knows the name. */
+    private fun resolveName(uuid: UUID): CompletableFuture<String> {
+        sessions[uuid]?.let { return CompletableFuture.completedFuture(it.player.name) }
+        profileNames[uuid]?.let { return CompletableFuture.completedFuture(it) }
+        return mojang.get(URI(SESSION_PROFILE_URL + uuid.toString().replace("-", "")))
+            .thenApply { json -> json?.let(MojangSessionFetcher::parseProfileName)?.also { profileNames[uuid] = it } }
+            .exceptionally { error ->
+                logger.warn("Profile lookup for {} failed: {}", uuid, error.message)
+                null
+            }
+            .thenApply { it ?: uuid.toString() }
     }
 
     fun report(player: Player, targetName: String, reason: String) {

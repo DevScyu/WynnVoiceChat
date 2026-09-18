@@ -6,14 +6,18 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.lit
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.resources.language.I18n;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import wynnvoice.mod.VoiceMod;
+import wynnvoice.mod.session.VoiceRoster;
 import wynnvoice.protocol.Packet;
+import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.VoiceTier;
 
 public final class VoiceCommand {
@@ -34,6 +38,8 @@ public final class VoiceCommand {
                         .then(argument("reason", StringArgumentType.greedyString())
                                 .executes(context -> request(context, mod, new Packet.Report(
                                         StringArgumentType.getString(context, "player"), StringArgumentType.getString(context, "reason")))))))
+                .then(literal("who").executes(context -> who(context, mod)))
+                .then(literal("blocks").executes(context -> request(context, mod, new Packet.BlockList())))
                 .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
                 .then(literal("disable").executes(context -> setEnabled(context, mod, false)))
                 .executes(context -> {
@@ -51,6 +57,22 @@ public final class VoiceCommand {
         }
         mod.setTier(tier);
         context.getSource().sendFeedback(Component.translatable("wynnvoice.command.tierSet", tier.name()).withStyle(ChatFormatting.GREEN));
+        return 1;
+    }
+
+    private static int who(CommandContext<FabricClientCommandSource> context, VoiceMod mod) {
+        List<Peer> peers = mod.roster();
+        if (peers == null) {
+            context.getSource().sendError(Component.translatable("wynnvoice.command.notConnected"));
+            return 1;
+        }
+        if (peers.isEmpty()) {
+            context.getSource().sendFeedback(Component.translatable("wynnvoice.who.empty").withStyle(ChatFormatting.AQUA));
+            return 1;
+        }
+        for (String line : VoiceRoster.lines(peers, key -> I18n.get("wynnvoice.who." + key))) {
+            context.getSource().sendFeedback(Component.literal(line).withStyle(ChatFormatting.AQUA));
+        }
         return 1;
     }
 

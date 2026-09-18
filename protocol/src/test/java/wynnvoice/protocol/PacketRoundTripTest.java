@@ -43,7 +43,9 @@ class PacketRoundTripTest {
                 new Ended(EndReason.WORLD_MISMATCH, "You are not on that world"),
                 new Block("Someone", false),
                 new Report("Someone", "slurs in voice"),
-                new Result(ResultKind.REPORT_OUTCOME, true, "Report #12 actioned"));
+                new Result(ResultKind.REPORT_OUTCOME, true, "Report #12 actioned"),
+                new BlockList(),
+                new BlockListResult(List.of("Alice", "Bob")));
     }
 
     @ParameterizedTest
@@ -65,15 +67,17 @@ class PacketRoundTripTest {
         Set<Class<?>> sampled = packets().map(Packet::getClass).collect(Collectors.toSet());
         Set<Class<?>> declared = Set.of(Packet.class.getPermittedSubclasses());
         assertEquals(declared, sampled);
-        assertEquals(15, declared.size());
+        assertEquals(17, declared.size());
     }
 
     @Test
     void emptyLists() {
         Social social = new Social(SocialKind.PARTY, SocialAction.SET, List.of());
         Peers peers = new Peers(List.of());
+        BlockListResult blocks = new BlockListResult(List.of());
         assertEquals(social, roundTrip(social));
         assertEquals(peers, roundTrip(peers));
+        assertEquals(blocks, roundTrip(blocks));
     }
 
     @Test
