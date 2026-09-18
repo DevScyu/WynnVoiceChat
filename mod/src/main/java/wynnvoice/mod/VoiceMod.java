@@ -235,6 +235,18 @@ public final class VoiceMod implements ClientModInitializer {
         return session != null && session.isActive() ? session.lastPeers() : null;
     }
 
+    /** The voice user with this uuid from the last {@code Peers}; null when unknown or no session is active. */
+    public static Peer peer(UUID uuid) {
+        VoiceMod mod = instance;
+        List<Peer> peers = mod == null ? null : mod.roster();
+        if (peers == null) return null;
+        // ponytail: linear scan per icon render; a world's voice roster is a few dozen entries at most
+        for (Peer peer : peers) {
+            if (peer.uuid().equals(uuid)) return peer;
+        }
+        return null;
+    }
+
     public void setEnabled(boolean enabled) {
         config.enabled = enabled;
         saveConfig();

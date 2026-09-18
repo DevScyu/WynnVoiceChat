@@ -286,6 +286,8 @@ Joining a world connects to the relay and authenticates through Mojang. If the r
 the connection you get one chat line explaining why; leaving the world closes the connection.
 Once connected, one grey line says how many players are on voice on your world and how many of
 them can hear you (nothing is printed when nobody is).
+Simple Voice Chat's nameplate icon over a voice user is tinted by relation (green party, blue
+friend, gold guild, white stranger) and crossed out in red when you cannot hear each other.
 
 | Command                                                   | Effect                                                    |
 |-----------------------------------------------------------|-----------------------------------------------------------|
