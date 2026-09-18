@@ -66,12 +66,13 @@ public final class PartyTracker {
     }
 
     private final String self;
-    private final Runnable sendListCommand;
+    /** Null when another mod already asks Wynncraft for the list; the response is then parsed but never hidden. */
+    private final @Nullable Runnable sendListCommand;
     private final BiConsumer<SocialAction, List<String>> onChange;
     private final Set<String> members = new LinkedHashSet<>();
     private boolean expectingList;
 
-    public PartyTracker(String self, Runnable sendListCommand, BiConsumer<SocialAction, List<String>> onChange) {
+    public PartyTracker(String self, @Nullable Runnable sendListCommand, BiConsumer<SocialAction, List<String>> onChange) {
         this.self = self;
         this.sendListCommand = sendListCommand;
         this.onChange = onChange;
@@ -82,6 +83,7 @@ public final class PartyTracker {
     }
 
     public void requestList() {
+        if (sendListCommand == null) return;
         expectingList = true;
         sendListCommand.run();
     }

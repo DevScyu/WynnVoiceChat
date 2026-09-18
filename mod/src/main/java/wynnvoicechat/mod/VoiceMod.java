@@ -50,6 +50,7 @@ public final class VoiceMod implements ClientModInitializer {
     public static final String ALIAS = "wvc";
     private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
     private static final int TICKS_PER_POSITION = 5; // 4 Hz
+    private static final long RECONNECT_MS = 30_000;
     private static final int POSITIONS_PER_STATE_SYNC = 20; // ~5 s, catches players who loaded in since the last Peers
     private static volatile VoiceMod instance;
 
@@ -68,6 +69,7 @@ public final class VoiceMod implements ClientModInitializer {
     private boolean warnedSvcVersion;
     private boolean svcDisabled;
     private int tickCounter;
+    private long lastConnectAttempt;
     private int positionCounter;
 
     @Override
@@ -86,11 +88,13 @@ public final class VoiceMod implements ClientModInitializer {
             onWynncraft = server != null && isWynncraft(server.ip);
             refused = false;
             warnedSvcVersion = false;
-            party = new PartyTracker(minecraft.getUser().getName(), () -> sendCommand("party list"),
+            // Wynntils runs the same list commands on every world join; ride on its responses instead of doubling them
+            boolean wynntils = FabricLoader.getInstance().isModLoaded("wynntils");
+            party = new PartyTracker(minecraft.getUser().getName(), wynntils ? null : () -> sendCommand("party list"),
                     (action, names) -> {
                         if (session != null) session.social(SocialKind.PARTY, action, names);
                     });
-            friends = new FriendsTracker(() -> sendCommand("friend list"), (action, names) -> {
+            friends = new FriendsTracker(wynntils ? null : () -> sendCommand("friend list"), (action, names) -> {
                 if (session != null) session.social(SocialKind.FRIENDS, action, names);
             });
         });
@@ -113,6 +117,7 @@ public final class VoiceMod implements ClientModInitializer {
         PlayerInfo entry = minecraft.getConnection().getPlayerInfo(WorldTracker.TAB_LIST_ENTRY);
         Component name = entry == null ? null : entry.getTabListDisplayName();
         setWorld(name == null ? null : name.getString());
+        if (client == null && System.currentTimeMillis() - lastConnectAttempt > RECONNECT_MS) connectIfAllowed();
 
         if (session == null || !session.isActive() || minecraft.player == null || ++tickCounter < TICKS_PER_POSITION) return;
         tickCounter = 0;
@@ -324,6 +329,7 @@ public final class VoiceMod implements ClientModInitializer {
         });
         session = newSession;
         connectedWorld = state.world();
+        lastConnectAttempt = System.currentTimeMillis();
         client.connect(config.relayHost, config.relayPort);
     }
 
