@@ -132,6 +132,12 @@ To build:
 | `RATE_LIMIT_MAX_CONCURRENT_PER_IP`  | `5`       | Open connections allowed per IP                     |
 | `RATE_LIMIT_MAX_PER_MINUTE_PER_IP`  | `15`      | New connections per minute per IP                   |
 | `RATE_LIMIT_MAX_HANDSHAKING`        | `500`     | Unauthenticated connections allowed at once         |
+| `VOICE_ENABLED`                     | `false`   | Must be `true`; otherwise every client is refused with `DISABLED` |
+| `VOICE_HOST`                        | —         | Public host Simple Voice Chat clients send audio to |
+| `VOICE_PORT` / `VOICE_BIND`         | `24454` / `0.0.0.0` | UDP port for audio and the address it binds to |
+| `VOICE_RANGE`                       | `32`      | Proximity range in blocks; whispering halves it     |
+| `VOICE_EVERYONE_ENABLED`            | `false`   | Allow the everyone audience; otherwise tiers are capped at friends & guild |
+| `VOICE_RING_CAP_MB`                 | `512`     | Total memory kept for report audio evidence         |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -145,12 +151,17 @@ Minecraft directory, created on first launch:
 ```json
 {
   "relayHost": "localhost",
-  "relayPort": 9100
+  "relayPort": 9100,
+  "tier": "PARTY"
 }
 ```
 
 Joining a world connects to the relay and authenticates through Mojang. If the relay refuses
 the connection you get one chat line explaining why; leaving the world closes the connection.
+
+`tier` is the audience that may hear you: `PARTY`, `FRIENDS_AND_GUILD` or `EVERYONE`. Two
+players on `EVERYONE`, on the same world and housing plot and within range, hear each other
+through Simple Voice Chat; Simple Voice Chat's own disable toggle stops delivery.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -160,7 +171,7 @@ the connection you get one chat line explaining why; leaving the world closes th
 
 - [x] Shared protocol and relay authentication
 - [x] Mod connects and authenticates on world join
-- [ ] Proximity voice on the same world and housing instance
+- [x] Proximity voice on the same world and housing instance
 - [ ] Party tier: hear your party anywhere
 - [ ] Friends & guild tier
 - [ ] Consent screen, `/wynnvoice` command and config

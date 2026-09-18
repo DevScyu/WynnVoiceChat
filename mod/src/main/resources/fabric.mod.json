@@ -9,6 +9,7 @@
   "entrypoints": {
     "client": ["wynnvoice.mod.VoiceMod"]
   },
+  "mixins": ["wynnvoice.mixins.json"],
   "depends": {
     "fabricloader": ">=0.18.4",
     "fabric-api": "*",

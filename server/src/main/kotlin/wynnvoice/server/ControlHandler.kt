@@ -11,20 +11,23 @@ import java.util.UUID
 import wynnvoice.protocol.AuthStatus
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Protocol
+import wynnvoice.server.voice.Player
+import wynnvoice.server.voice.VoiceManager
 
 class ControlHandler(
     private val sessions: SessionFetcher,
+    private val voice: VoiceManager,
     private val onAuthenticated: (ControlHandler) -> Unit = {},
 ) : SimpleChannelInboundHandler<Packet>() {
     private enum class Stage { HELLO, AUTH, VERIFYING, READY }
 
     private var stage = Stage.HELLO
     private val serverId = ByteArray(Protocol.SERVER_ID_BYTES).also(RANDOM::nextBytes)
+    private var svcCompatVersion = 0
+    private var player: Player? = null
 
-    var uuid: UUID? = null
-        private set
-    var username: String? = null
-        private set
+    val uuid: UUID? get() = player?.uuid
+    val username: String? get() = player?.name
     var modVersion: String = "other"
         private set
 
@@ -34,9 +37,24 @@ class ControlHandler(
         when {
             stage == Stage.HELLO && packet is Packet.Hello -> onHello(ctx, packet)
             stage == Stage.AUTH && packet is Packet.Auth -> onAuth(ctx, packet)
-            stage == Stage.READY -> log.debug("Unhandled packet from {}: {}", username, packet)
+            stage == Stage.READY -> onPacket(player!!, packet)
             else -> ctx.close()
         }
+    }
+
+    private fun onPacket(player: Player, packet: Packet) {
+        when (packet) {
+            is Packet.World -> player.world = packet.world.ifEmpty { null }
+            is Packet.Position -> player.position = packet
+            is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
+            is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
+            else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
+        }
+    }
+
+    override fun channelInactive(ctx: ChannelHandlerContext) {
+        player?.let(voice::leave)
+        ctx.fireChannelInactive()
     }
 
     private fun onHello(ctx: ChannelHandlerContext, hello: Packet.Hello) {
@@ -45,6 +63,7 @@ class ControlHandler(
             return
         }
         modVersion = hello.modVersion.takeIf(MOD_VERSION::matches) ?: "other"
+        svcCompatVersion = hello.svcCompatVersion
         stage = Stage.AUTH
         ctx.writeAndFlush(Packet.AuthChallenge(serverId))
     }
@@ -52,6 +71,10 @@ class ControlHandler(
     private fun onAuth(ctx: ChannelHandlerContext, auth: Packet.Auth) {
         if (!USERNAME.matches(auth.username)) {
             refuse(ctx, AuthStatus.BAD_SESSION)
+            return
+        }
+        if (!voice.config.enabled) {
+            refuse(ctx, AuthStatus.DISABLED)
             return
         }
         stage = Stage.VERIFYING
@@ -63,8 +86,7 @@ class ControlHandler(
                 }
                 verified != auth.uuid -> refuse(ctx, AuthStatus.BAD_SESSION)
                 else -> {
-                    uuid = auth.uuid
-                    username = auth.username
+                    player = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }
                     stage = Stage.READY
                     ctx.pipeline().get(ReadTimeoutHandler::class.java)?.let(ctx.pipeline()::remove)
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))

@@ -12,11 +12,13 @@ import org.slf4j.LoggerFactory
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 import wynnvoice.protocol.VoicePipeline
+import wynnvoice.server.voice.VoiceManager
 
 class ControlServer(
     private val host: String,
     private val port: Int,
     private val sessions: SessionFetcher,
+    private val voice: VoiceManager,
     private val rateLimiter: ConnectionRateLimiter = ConnectionRateLimiter(),
     private val handshakeTimeoutSeconds: Int = 10,
 ) {
@@ -46,7 +48,7 @@ class ControlServer(
             return
         }
         handshaking.incrementAndGet()
-        val handler = ControlHandler(sessions) { handshaking.decrementAndGet() }
+        val handler = ControlHandler(sessions, voice) { handshaking.decrementAndGet() }
         ch.closeFuture().addListener {
             rateLimiter.release(ip)
             if (!handler.authenticated) handshaking.decrementAndGet()

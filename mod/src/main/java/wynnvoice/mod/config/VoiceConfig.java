@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import wynnvoice.protocol.VoiceTier;
 
 public final class VoiceConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -15,6 +16,7 @@ public final class VoiceConfig {
 
     public String relayHost = "localhost";
     public int relayPort = 9100;
+    public VoiceTier tier = VoiceTier.PARTY;
 
     public static VoiceConfig load(Path file) throws IOException {
         VoiceConfig config = null;
@@ -26,6 +28,7 @@ public final class VoiceConfig {
             }
         }
         if (config == null) config = new VoiceConfig();
+        if (config.tier == null) config.tier = VoiceTier.PARTY;
         config.save(file);
         return config;
     }

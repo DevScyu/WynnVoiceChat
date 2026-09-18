@@ -10,25 +10,37 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import wynnvoice.protocol.AuthStatus
+import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
+import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.Protocol
+import wynnvoice.protocol.VoiceTier
+import wynnvoice.server.voice.VoiceConfig
+import wynnvoice.server.voice.VoiceManager
 
 class ControlHandlerTest {
     private val uuid = UUID.randomUUID()
     private var fetched: Pair<String, String>? = null
     private var authenticated: ControlHandler? = null
+    private val config = VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000)
+    private var voice = VoiceManager(config, { _, _ -> })
 
     private fun channel(session: () -> UUID?): EmbeddedChannel {
         val fetcher = SessionFetcher { username, serverId ->
             fetched = username to serverId
             runCatching { CompletableFuture.completedFuture(session()) }.getOrElse { CompletableFuture.failedFuture(it) }
         }
-        return EmbeddedChannel(ControlHandler(fetcher) { authenticated = it })
+        return EmbeddedChannel(ControlHandler(fetcher, voice) { authenticated = it })
     }
 
-    private fun EmbeddedChannel.hello(version: Int = Protocol.VERSION, modVersion: String = "1.0.0"): Packet? {
-        writeInbound(Packet.Hello(version, 20, modVersion))
+    private fun EmbeddedChannel.hello(version: Int = Protocol.VERSION, modVersion: String = "1.0.0", svcVersion: Int = 20): Packet? {
+        writeInbound(Packet.Hello(version, svcVersion, modVersion))
         return readOutbound()
+    }
+
+    private fun ready(svcVersion: Int = 20): EmbeddedChannel = channel { uuid }.also {
+        it.hello(svcVersion = svcVersion)
+        it.auth()
     }
 
     private fun EmbeddedChannel.auth(name: String = "Player", id: UUID = uuid): Packet.AuthResult? {
@@ -111,5 +123,58 @@ class ControlHandlerTest {
         ch.hello(modVersion = "1.0.0-beta+garbage")
         ch.auth()
         assertEquals("other", authenticated?.modVersion)
+    }
+
+    @Test
+    fun `disabled relay refuses at auth`() {
+        voice = VoiceManager(config.copy(enabled = false), { _, _ -> })
+        val ch = channel { uuid }
+        ch.hello()
+        assertEquals(Packet.AuthResult(AuthStatus.DISABLED), ch.auth())
+        assertFalse(ch.isOpen)
+    }
+
+    @Test
+    fun `join creates a session and answers with the secret`() {
+        val ch = ready()
+        ch.writeInbound(Packet.World("WC12"))
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, "housing:Me"))
+        val secret = ch.readOutbound<Packet.Secret>()
+        assertEquals("voice.test", secret.host)
+        val session = voice.sessionOf(uuid)!!
+        assertEquals("WC12", session.player.world)
+        assertEquals("housing:Me", session.instance)
+        assertEquals(VoiceTier.EVERYONE, session.tier)
+    }
+
+    @Test
+    fun `svc version from hello is checked at join`() {
+        val ch = ready(svcVersion = 18)
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        assertEquals(EndReason.UNSUPPORTED_SVC_VERSION, ch.readOutbound<Packet.Ended>().reason)
+        assertNull(voice.sessionOf(uuid))
+    }
+
+    @Test
+    fun `position and update maintain the session`() {
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        ch.writeInbound(Packet.Position(1f, 2f, 3f))
+        ch.writeInbound(Packet.Update(VoiceTier.PARTY, "housing:X", true, false, false))
+        ch.writeInbound(Packet.World(""))
+        val session = voice.sessionOf(uuid)!!
+        assertEquals(Position(1f, 2f, 3f), session.player.position)
+        assertEquals(VoiceTier.PARTY, session.tier)
+        assertEquals("housing:X", session.instance)
+        assertTrue(session.disabled)
+        assertNull(session.player.world)
+    }
+
+    @Test
+    fun `closing the connection leaves the session`() {
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        ch.close()
+        assertNull(voice.sessionOf(uuid))
     }
 }
