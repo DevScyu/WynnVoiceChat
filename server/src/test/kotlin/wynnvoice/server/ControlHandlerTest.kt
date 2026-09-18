@@ -135,6 +135,20 @@ class ControlHandlerTest {
     }
 
     @Test
+    fun `allowlist refuses verified players who are not on it`() {
+        voice = VoiceManager(config.copy(allowedUuids = setOf(UUID.randomUUID())), { _, _ -> })
+        val ch = channel { uuid }
+        ch.hello()
+        assertEquals(Packet.AuthResult(AuthStatus.NOT_ALLOWED), ch.auth())
+        assertFalse(ch.isOpen)
+
+        voice = VoiceManager(config.copy(allowedUuids = setOf(uuid)), { _, _ -> })
+        val allowed = channel { uuid }
+        allowed.hello()
+        assertEquals(Packet.AuthResult(AuthStatus.OK), allowed.auth())
+    }
+
+    @Test
     fun `join creates a session and answers with the secret`() {
         val ch = ready()
         ch.writeInbound(Packet.World("WC12"))

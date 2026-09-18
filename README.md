@@ -133,6 +133,7 @@ To build:
 | `RATE_LIMIT_MAX_PER_MINUTE_PER_IP`  | `15`      | New connections per minute per IP                   |
 | `RATE_LIMIT_MAX_HANDSHAKING`        | `500`     | Unauthenticated connections allowed at once         |
 | `VOICE_ENABLED`                     | `false`   | Must be `true`; otherwise every client is refused with `DISABLED` |
+| `VOICE_ALLOWED_UUIDS`               | —         | Comma-separated player UUIDs; when set, anyone else is refused with `NOT_ALLOWED` |
 | `VOICE_HOST`                        | —         | Public host Simple Voice Chat clients send audio to |
 | `VOICE_PORT` / `VOICE_BIND`         | `24454` / `0.0.0.0` | UDP port for audio and the address it binds to |
 | `VOICE_RANGE`                       | `32`      | Proximity range in blocks; whispering halves it     |

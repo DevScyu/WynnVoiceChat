@@ -1,5 +1,6 @@
 package wynnvoice.server.voice
 
+import java.util.UUID
 import wynnvoice.protocol.VoiceTier
 
 data class VoiceConfig(
@@ -12,10 +13,14 @@ data class VoiceConfig(
     val keepAliveMs: Int,
     val reportDir: String,
     val ringBufferCapBytes: Long,
+    /** null means open to everyone; otherwise only these players may authenticate */
+    val allowedUuids: Set<UUID>? = null,
 ) {
     init {
         require(!enabled || host.isNotBlank()) { "VOICE_HOST must be set when VOICE_ENABLED=true" }
     }
+
+    fun allows(uuid: UUID) = allowedUuids?.contains(uuid) ?: true
 
     val maxTier: VoiceTier get() = if (everyoneEnabled) VoiceTier.EVERYONE else VoiceTier.FRIENDS_AND_GUILD
 
@@ -32,6 +37,11 @@ data class VoiceConfig(
             keepAliveMs = 1000,
             reportDir = System.getenv("VOICE_REPORT_DIR") ?: "voice-reports",
             ringBufferCapBytes = (System.getenv("VOICE_RING_CAP_MB")?.toLongOrNull() ?: 512L) * 1024 * 1024,
+            allowedUuids = parseUuids(System.getenv("VOICE_ALLOWED_UUIDS")),
         )
+
+        /** Comma-separated UUIDs; blank or unset means no allowlist. */
+        fun parseUuids(value: String?): Set<UUID>? =
+            value?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.map(UUID::fromString)?.toSet()?.takeIf { it.isNotEmpty() }
     }
 }

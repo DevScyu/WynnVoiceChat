@@ -157,6 +157,7 @@ public final class VoiceMod implements ClientModInitializer {
             case VERSION_MISMATCH -> "your mod version is not supported by the relay, please update";
             case BANNED -> "you are banned from voice chat";
             case DISABLED -> "the relay is currently disabled";
+            case NOT_ALLOWED -> "you are not on the relay's allowlist";
             case BAD_SESSION -> "Mojang did not confirm your session";
             case SESSION_UNAVAILABLE -> "Mojang's session server could not be reached";
             case OK -> throw new IllegalArgumentException();

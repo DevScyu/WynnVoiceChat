@@ -85,6 +85,7 @@ class ControlHandler(
                     refuse(ctx, AuthStatus.SESSION_UNAVAILABLE)
                 }
                 verified != auth.uuid -> refuse(ctx, AuthStatus.BAD_SESSION)
+                !voice.config.allows(auth.uuid) -> refuse(ctx, AuthStatus.NOT_ALLOWED)
                 else -> {
                     player = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }
                     stage = Stage.READY
