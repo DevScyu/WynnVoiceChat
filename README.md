@@ -177,7 +177,8 @@ See the [open issues][issues-url] for a full list of proposed features and known
 ## Contributing
 
 Contributions are welcome. If you have a suggestion, fork the repo and open a pull request,
-or open an issue with the tag "enhancement".
+or open an issue with the tag "enhancement". See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+full guide and the [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
 1. Fork the project
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -202,6 +203,8 @@ information.
 
 ## Contact
 
+Discord: [https://discord.gg/QPCwpuA2b](https://discord.gg/QPCwpuA2b)
+
 Project link: [https://github.com/OWNER/REPO](https://github.com/OWNER/REPO)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -211,6 +214,7 @@ Project link: [https://github.com/OWNER/REPO](https://github.com/OWNER/REPO)
 ## Acknowledgments
 
 * [Simple Voice Chat][svc-url], the audio engine this project builds on
+* [Contributor Covenant](https://www.contributor-covenant.org)
 * [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussion
+    url: https://discord.gg/QPCwpuA2b
+    about: Ask questions and discuss ideas on Discord
+  - name: Security vulnerability
+    url: https://github.com/OWNER/REPO/security/advisories/new
+    about: Report a vulnerability privately, never in a public issue
