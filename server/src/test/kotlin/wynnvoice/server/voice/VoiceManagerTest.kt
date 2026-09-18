@@ -231,6 +231,28 @@ class VoiceManagerTest {
     }
 
     @Test
+    fun `friends and guild tier reaches mutual friends and guild mates in range only`() {
+        val a = player("A").also { it.friends = setOf("F", "OneSided"); it.guildMembers = setOf("A", "G") }
+        val f = player("F", Position(10f, 100f, 0f)).also { it.friends = setOf("A") }
+        val g = player("G", Position(10f, 100f, 0f)).also { it.guildMembers = setOf("A", "G") }
+        val oneSided = player("OneSided", Position(10f, 100f, 0f))
+        val stranger = player("S", Position(10f, 100f, 0f))
+        val secretA = connect(a, addrA, tier = VoiceTier.FRIENDS_AND_GUILD)
+        val secretF = connect(f, addrB, tier = VoiceTier.FRIENDS_AND_GUILD)
+        val secretG = connect(g, addrC, tier = VoiceTier.EVERYONE)
+        connect(oneSided, InetSocketAddress("10.0.0.4", 1))
+        connect(stranger, InetSocketAddress("10.0.0.5", 1))
+        transport.clear()
+
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1), 1, whispering = false)))
+
+        assertEquals(setOf(addrB, addrC), transport.sent.map { it.first }.toSet())
+        val expected = SvcCodec.encode(SvcPacket.LocationSound(a.uuid, 0.0, 100.0, 0.0, byteArrayOf(1), 1, 32f))
+        assertContentEquals(expected, decodeServer(secretF, transport.sent.single { it.first == addrB }.second))
+        assertContentEquals(expected, decodeServer(secretG, transport.sent.single { it.first == addrC }.second))
+    }
+
+    @Test
     fun `whisper delivers half range`() {
         val a = player("A")
         val s = player("S", Position(10f, 100f, 0f))

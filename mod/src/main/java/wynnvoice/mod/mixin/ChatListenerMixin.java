@@ -11,7 +11,7 @@ import wynnvoice.mod.VoiceMod;
 @Mixin(ChatListener.class)
 abstract class ChatListenerMixin {
     @Inject(method = "handleSystemMessage(Lnet/minecraft/network/chat/Component;Z)V", at = @At("HEAD"), cancellable = true)
-    private void wynnvoice$trackParty(Component message, boolean overlay, CallbackInfo ci) {
+    private void wynnvoice$trackSocial(Component message, boolean overlay, CallbackInfo ci) {
         if (!overlay && VoiceMod.interceptSystemChat(message)) ci.cancel();
     }
 }

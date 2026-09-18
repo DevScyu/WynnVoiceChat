@@ -162,7 +162,10 @@ the connection you get one chat line explaining why; leaving the world closes th
 
 `tier` is the audience that may hear you: `PARTY`, `FRIENDS_AND_GUILD` or `EVERYONE`. Two
 players on `EVERYONE`, on the same world and housing plot and within range, hear each other
-through Simple Voice Chat; Simple Voice Chat's own disable toggle stops delivery.
+through Simple Voice Chat; Simple Voice Chat's own disable toggle stops delivery. On
+`FRIENDS_AND_GUILD` you additionally need to be mutual friends or in the same guild: the mod
+reads your friend list from `/friend list`, and the relay looks your guild up on the Wynncraft
+public API (cached ten minutes), so a client can never claim a guild it is not in.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

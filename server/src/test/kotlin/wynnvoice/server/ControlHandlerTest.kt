@@ -26,13 +26,19 @@ class ControlHandlerTest {
     private var authenticated: ControlHandler? = null
     private val config = VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000)
     private var voice = VoiceManager(config, { _, _ -> })
+    private var guildMembers: Set<String> = emptySet()
+    private val guilds = GuildResolver({ uri ->
+        CompletableFuture.completedFuture(
+            if (uri.path.startsWith("/v3/player/")) """{"guild":{"uuid":"18d19092-684b-427b-aa58-574230befe79","name":"G"}}"""
+            else guildMembers.joinToString(",", "{\"members\":{\"owner\":{", "}}}") { "\"$it\":{\"uuid\":\"x\"}" })
+    })
 
     private fun channel(session: () -> UUID?): EmbeddedChannel {
         val fetcher = SessionFetcher { username, serverId ->
             fetched = username to serverId
             runCatching { CompletableFuture.completedFuture(session()) }.getOrElse { CompletableFuture.failedFuture(it) }
         }
-        return EmbeddedChannel(ControlHandler(fetcher, voice) { authenticated = it })
+        return EmbeddedChannel(ControlHandler(fetcher, guilds, voice) { authenticated = it })
     }
 
     private fun EmbeddedChannel.hello(version: Int = Protocol.VERSION, modVersion: String = "1.0.0", svcVersion: Int = 20): Packet? {
@@ -192,6 +198,17 @@ class ControlHandlerTest {
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.close()
         assertNull(voice.sessionOf(uuid))
+    }
+
+    @Test
+    fun `guild members come from the resolver after auth and never from the client`() {
+        guildMembers = setOf("Mate", "Player")
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.FRIENDS_AND_GUILD, ""))
+        val player = voice.sessionOf(uuid)!!.player
+        assertEquals(setOf("Mate", "Player"), player.guildMembers)
+        ch.writeInbound(Packet.Social(SocialKind.FRIENDS, SocialAction.SET, listOf("Impostor")))
+        assertEquals(setOf("Mate", "Player"), player.guildMembers)
     }
 
     @Test

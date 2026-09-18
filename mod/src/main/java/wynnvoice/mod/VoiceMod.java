@@ -28,6 +28,7 @@ import wynnvoice.mod.net.VoiceClient;
 import wynnvoice.mod.session.VoiceSession;
 import wynnvoice.mod.svc.VoiceChatBridge;
 import wynnvoice.mod.svc.VoiceChatPayloads;
+import wynnvoice.mod.wynn.FriendsTracker;
 import wynnvoice.mod.wynn.PartyTracker;
 import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
@@ -48,6 +49,7 @@ public final class VoiceMod implements ClientModInitializer {
     private String lastWorld;
     private final WorldTracker worldTracker = new WorldTracker();
     private PartyTracker party;
+    private FriendsTracker friends;
     private volatile boolean onWynncraft;
     private boolean refused;
     private boolean warnedSvcVersion;
@@ -73,11 +75,15 @@ public final class VoiceMod implements ClientModInitializer {
                     (action, names) -> {
                         if (session != null) session.social(SocialKind.PARTY, action, names);
                     });
+            friends = new FriendsTracker(() -> sendCommand("friend list"), (action, names) -> {
+                if (session != null) session.social(SocialKind.FRIENDS, action, names);
+            });
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, minecraft) -> {
             onWynncraft = false;
             setWorld(null);
             party = null;
+            friends = null;
         });
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
@@ -110,8 +116,13 @@ public final class VoiceMod implements ClientModInitializer {
         boolean enteredWorld = state.onWorld() && !state.world().equals(lastWorld);
         lastWorld = state.onWorld() ? state.world() : null;
         if (party != null) {
-            if (enteredWorld) party.requestList();
-            else if (!state.onWorld()) party.reset();
+            if (enteredWorld) {
+                party.requestList();
+                friends.requestList();
+            } else if (!state.onWorld()) {
+                party.reset();
+                friends.reset();
+            }
         }
         if (!state.onWorld()) {
             refused = false;
@@ -202,11 +213,13 @@ public final class VoiceMod implements ClientModInitializer {
         if (connection != null) connection.sendCommand(command);
     }
 
-    /** Party bookkeeping from Wynncraft's chat; true hides the line (our own {@code /party list} response). */
+    /** Party and friend bookkeeping from Wynncraft's chat; true hides the line (our own list command's response). */
     public static boolean interceptSystemChat(Component message) {
         VoiceMod mod = instance;
         if (mod == null || !mod.onWynncraft || mod.party == null) return false;
-        return mod.party.onChat(message.getString(), PartyTracker.realName(message));
+        String text = message.getString();
+        String realName = PartyTracker.realName(message);
+        return mod.party.onChat(text, realName) || mod.friends.onChat(text, realName);
     }
 
     /** Wynncraft has no Simple Voice Chat server; its plugin messages are answered here and never sent. */
@@ -276,6 +289,12 @@ public final class VoiceMod implements ClientModInitializer {
         public Set<String> party() {
             PartyTracker party = instance.party;
             return party == null ? Set.of() : party.members();
+        }
+
+        @Override
+        public Set<String> friends() {
+            FriendsTracker friends = instance.friends;
+            return friends == null ? Set.of() : friends.friends();
         }
 
         @Override

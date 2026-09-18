@@ -18,6 +18,7 @@ class ControlServer(
     private val host: String,
     private val port: Int,
     private val sessions: SessionFetcher,
+    private val guilds: GuildResolver,
     private val voice: VoiceManager,
     private val rateLimiter: ConnectionRateLimiter = ConnectionRateLimiter(),
     private val handshakeTimeoutSeconds: Int = 10,
@@ -48,7 +49,7 @@ class ControlServer(
             return
         }
         handshaking.incrementAndGet()
-        val handler = ControlHandler(sessions, voice) { handshaking.decrementAndGet() }
+        val handler = ControlHandler(sessions, guilds, voice) { handshaking.decrementAndGet() }
         ch.closeFuture().addListener {
             rateLimiter.release(ip)
             if (!handler.authenticated) handshaking.decrementAndGet()

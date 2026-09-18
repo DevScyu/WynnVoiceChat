@@ -34,6 +34,8 @@ public final class VoiceSession {
 
         Set<String> party();
 
+        Set<String> friends();
+
         /** Put us in (or take us out of) the read-only SVC group that mirrors the Wynncraft party. */
         void injectPartyGroup(boolean joined);
     }
@@ -65,9 +67,13 @@ public final class VoiceSession {
         this.instance = instance;
         authenticated = true;
         effects.send(new Packet.World(world));
-        Set<String> party = effects.party();
-        if (!party.isEmpty()) effects.send(new Packet.Social(SocialKind.PARTY, SocialAction.SET, List.copyOf(party)));
+        sendIfAny(SocialKind.PARTY, effects.party());
+        sendIfAny(SocialKind.FRIENDS, effects.friends());
         join();
+    }
+
+    private void sendIfAny(SocialKind kind, Set<String> names) {
+        if (!names.isEmpty()) effects.send(new Packet.Social(kind, SocialAction.SET, List.copyOf(names)));
     }
 
     public void social(SocialKind kind, SocialAction action, List<String> names) {

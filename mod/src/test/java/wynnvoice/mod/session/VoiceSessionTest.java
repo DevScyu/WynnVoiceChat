@@ -31,6 +31,7 @@ class VoiceSessionTest {
     private final Map<UUID, String> others = new LinkedHashMap<>();
     private final List<Boolean> partyGroup = new ArrayList<>();
     private Set<String> party = Set.of();
+    private Set<String> friends = Set.of();
 
     private final VoiceSession.Effects effects = new VoiceSession.Effects() {
         @Override
@@ -61,6 +62,11 @@ class VoiceSessionTest {
         @Override
         public Set<String> party() {
             return party;
+        }
+
+        @Override
+        public Set<String> friends() {
+            return friends;
         }
 
         @Override
@@ -180,12 +186,13 @@ class VoiceSessionTest {
     }
 
     @Test
-    void partyIsSentAfterAuthAndChangesOnlyWhileAuthenticated() {
+    void socialListsAreSentAfterAuthAndChangesOnlyWhileAuthenticated() {
         session.social(SocialKind.PARTY, SocialAction.ADD, List.of("Early"));
         session.onAuthenticated("WC1", "");
-        assertEquals(List.of(new Packet.World("WC1"), new Packet.Join(VoiceTier.EVERYONE, "")), sent, "empty party is not sent");
+        assertEquals(List.of(new Packet.World("WC1"), new Packet.Join(VoiceTier.EVERYONE, "")), sent, "empty lists are not sent");
 
         party = new LinkedHashSet<>(List.of("Me", "Pal"));
+        friends = Set.of("Buddy");
         VoiceSession next = new VoiceSession(VoiceTier.PARTY, effects);
         sent.clear();
         next.onAuthenticated("WC1", "");
@@ -193,6 +200,7 @@ class VoiceSessionTest {
         assertEquals(List.of(
                 new Packet.World("WC1"),
                 new Packet.Social(SocialKind.PARTY, SocialAction.SET, List.of("Me", "Pal")),
+                new Packet.Social(SocialKind.FRIENDS, SocialAction.SET, List.of("Buddy")),
                 new Packet.Join(VoiceTier.PARTY, ""),
                 new Packet.Social(SocialKind.PARTY, SocialAction.REMOVE, List.of("Pal"))), sent);
 

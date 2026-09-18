@@ -16,6 +16,7 @@ import wynnvoice.server.voice.VoiceManager
 
 class ControlHandler(
     private val sessions: SessionFetcher,
+    private val guilds: GuildResolver,
     private val voice: VoiceManager,
     private val onAuthenticated: (ControlHandler) -> Unit = {},
 ) : SimpleChannelInboundHandler<Packet>() {
@@ -88,10 +89,12 @@ class ControlHandler(
                 verified != auth.uuid -> refuse(ctx, AuthStatus.BAD_SESSION)
                 !voice.config.allows(auth.uuid) -> refuse(ctx, AuthStatus.NOT_ALLOWED)
                 else -> {
-                    player = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }
+                    val verifiedPlayer = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }
+                    player = verifiedPlayer
                     stage = Stage.READY
                     ctx.pipeline().get(ReadTimeoutHandler::class.java)?.let(ctx.pipeline()::remove)
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
+                    guilds.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
                     onAuthenticated(this)
                 }
             }
