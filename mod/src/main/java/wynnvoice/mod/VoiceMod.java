@@ -183,6 +183,10 @@ public final class VoiceMod implements ClientModInitializer {
         if (session != null) session.setTier(config.effectiveTier());
     }
 
+    public boolean request(Packet packet) {
+        return session != null && session.request(packet);
+    }
+
     public void setEnabled(boolean enabled) {
         config.enabled = enabled;
         saveConfig();
@@ -327,6 +331,11 @@ public final class VoiceMod implements ClientModInitializer {
         @Override
         public void ended(String relayMessage) {
             VoiceMod.chat(Component.translatable("wynnvoice.ended", relayMessage), ChatFormatting.YELLOW);
+        }
+
+        @Override
+        public void result(Packet.Result result) {
+            VoiceMod.chat(Component.literal(result.message()), result.ok() ? ChatFormatting.GREEN : ChatFormatting.RED);
         }
 
         @Override

@@ -13,6 +13,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import wynnvoice.mod.VoiceMod;
+import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.VoiceTier;
 
 public final class VoiceCommand {
@@ -24,6 +25,15 @@ public final class VoiceCommand {
                         .suggests((context, builder) -> SharedSuggestionProvider.suggest(
                                 Arrays.stream(VoiceTier.values()).map(tier -> tier.name().toLowerCase(Locale.ROOT)), builder))
                         .executes(context -> setTier(context, mod))))
+                .then(literal("block").then(argument("player", StringArgumentType.word())
+                        .executes(context -> request(context, mod, new Packet.Block(StringArgumentType.getString(context, "player"), true)))))
+                .then(literal("unblock").then(argument("player", StringArgumentType.word())
+                        .executes(context -> request(context, mod, new Packet.Block(StringArgumentType.getString(context, "player"), false)))))
+                .then(literal("report").then(argument("player", StringArgumentType.word())
+                        .executes(context -> request(context, mod, new Packet.Report(StringArgumentType.getString(context, "player"), "")))
+                        .then(argument("reason", StringArgumentType.greedyString())
+                                .executes(context -> request(context, mod, new Packet.Report(
+                                        StringArgumentType.getString(context, "player"), StringArgumentType.getString(context, "reason")))))))
                 .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
                 .then(literal("disable").executes(context -> setEnabled(context, mod, false)))
                 .executes(context -> {
@@ -41,6 +51,11 @@ public final class VoiceCommand {
         }
         mod.setTier(tier);
         context.getSource().sendFeedback(Component.translatable("wynnvoice.command.tierSet", tier.name()).withStyle(ChatFormatting.GREEN));
+        return 1;
+    }
+
+    private static int request(CommandContext<FabricClientCommandSource> context, VoiceMod mod, Packet packet) {
+        if (!mod.request(packet)) context.getSource().sendError(Component.translatable("wynnvoice.command.notConnected"));
         return 1;
     }
 

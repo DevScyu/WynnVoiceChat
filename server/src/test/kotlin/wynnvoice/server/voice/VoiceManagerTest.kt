@@ -3,7 +3,9 @@ package wynnvoice.server.voice
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import java.io.File
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -11,11 +13,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.Relation
+import wynnvoice.protocol.ResultKind
 import wynnvoice.protocol.VoiceTier
+import wynnvoice.server.ApiFetcher
 import wynnvoice.server.voice.svc.SvcCodec
 import wynnvoice.server.voice.svc.SvcCrypto
 import wynnvoice.server.voice.svc.SvcPacket
@@ -30,13 +36,21 @@ class VoiceManagerTest {
     private val transport = FakeTransport()
     private val tcp = HashMap<UUID, ArrayList<Packet>>()
     private var now = 1_000_000L
+    private val reportDir = File("build/tmp/voice-reports-test").apply { deleteRecursively() }
     private val config = VoiceConfig(
         enabled = true, everyoneEnabled = true, host = "voice.test", port = 24454, bindAddress = "127.0.0.1",
-        range = 32.0, keepAliveMs = 1000, reportDir = "build/tmp/voice-reports-test", ringBufferCapBytes = 1_000_000,
+        range = 32.0, keepAliveMs = 1000, reportDir = reportDir.path, ringBufferCapBytes = 1_000_000,
     )
+    private lateinit var moderation: VoiceModeration
     private lateinit var manager: VoiceManager
+    /** Names Mojang knows that are not on voice. */
+    private val profiles = HashMap<String, UUID>()
+    private val mojang = ApiFetcher { uri ->
+        val id = profiles[uri.path.substringAfterLast('/')]
+        CompletableFuture.completedFuture(id?.let { "{\"id\":\"${it.toString().replace("-", "")}\",\"name\":\"x\"}" })
+    }
 
-    private fun manager(config: VoiceConfig = this.config) = VoiceManager(config, transport) { now }
+    private fun manager(config: VoiceConfig = this.config) = VoiceManager(config, moderation, transport, mojang) { now }
 
     private fun player(name: String, position: Position? = Position(0f, 100f, 0f), world: String? = "WC1"): Player {
         val uuid = UUID.nameUUIDFromBytes(name.toByteArray())
@@ -52,6 +66,7 @@ class VoiceManagerTest {
 
     @BeforeTest
     fun setUp() {
+        moderation = testModeration("voice-manager-test") { now }
         manager = manager()
     }
 
@@ -366,6 +381,26 @@ class VoiceManagerTest {
     }
 
     @Test
+    fun `maintain drops banned sessions`() {
+        val a = player("A")
+        val b = player("B")
+        connect(a, addrA)
+        val secretB = connect(b, addrB)
+        transaction(moderation.db) { VoiceBansTable.insert { it[userId] = b.uuid; it[reason] = "r"; it[bannedBy] = "s"; it[bannedAt] = now } }
+
+        manager.maintain()
+
+        assertEquals(EndReason.BANNED, last<Packet.Ended>(b).reason)
+        assertNull(manager.sessionOf(b.uuid))
+        assertTrue(sentTo(a).none { it is Packet.Ended })
+        repeat(101) { manager.onDatagram(addrB, clientDatagram(b, secretB, SvcPacket.KeepAlive)) }
+        val again = connect(b, addrB)
+        transport.clear()
+        manager.onDatagram(addrB, clientDatagram(b, again, SvcPacket.Ping(UUID.randomUUID(), 1)))
+        assertEquals(1, transport.sent.size, "a banned client's trailing datagrams are not abuse")
+    }
+
+    @Test
     fun `leave from a stale connection keeps the newer session`() {
         val old = player("A")
         connect(old, addrA)
@@ -373,6 +408,94 @@ class VoiceManagerTest {
         manager.join(fresh, 20, VoiceTier.EVERYONE, "")
         manager.leave(old)
         assertEquals(fresh, manager.sessionOf(fresh.uuid)!!.player)
+    }
+
+    // --- block / report ---
+
+    @Test
+    fun `block and unblock resolve live sessions then mojang`() {
+        val a = player("A")
+        val b = player("B")
+        connect(a, addrA)
+        connect(b, addrB)
+        profiles["Offline"] = UUID.randomUUID()
+
+        manager.block(a, "b", blocked = true)
+        val blocked = last<Packet.Result>(a)
+        assertEquals(ResultKind.BLOCK, blocked.kind)
+        assertTrue(blocked.ok, blocked.message)
+        assertTrue(moderation.isBlocked(b.uuid, a.uuid))
+
+        manager.block(a, "B", blocked = false)
+        assertEquals(ResultKind.UNBLOCK, last<Packet.Result>(a).kind)
+        assertTrue(last<Packet.Result>(a).ok)
+        assertFalse(moderation.isBlocked(a.uuid, b.uuid))
+
+        manager.block(a, "Offline", blocked = true)
+        assertTrue(last<Packet.Result>(a).ok)
+        assertTrue(moderation.isBlocked(a.uuid, profiles["Offline"]!!))
+
+        manager.block(a, "Nobody", blocked = true)
+        assertFalse(last<Packet.Result>(a).ok)
+        manager.block(a, "A", blocked = true)
+        assertFalse(last<Packet.Result>(a).ok)
+        manager.block(a, "bad name!", blocked = true)
+        assertFalse(last<Packet.Result>(a).ok)
+    }
+
+    @Test
+    fun `blocked players hear nothing from each other and see each other as unreachable`() {
+        val a = player("A")
+        val s = player("S", Position(10f, 100f, 0f))
+        val secretA = connect(a, addrA)
+        val secretS = connect(s, addrB)
+        manager.block(s, "A", blocked = true)
+        transport.clear()
+
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1), 1, false)))
+        manager.onDatagram(addrB, clientDatagram(s, secretS, SvcPacket.Mic(byteArrayOf(1), 1, false)))
+        assertTrue(transport.sent.isEmpty())
+
+        manager.syncPeers()
+        assertFalse(last<Packet.Peers>(a).peers.single().reachable)
+
+        manager.block(s, "A", blocked = false)
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(1), 2, false)))
+        assertEquals(listOf(addrB), transport.sent.map { it.first })
+    }
+
+    @Test
+    fun `report requires recent audio and writes evidence`() {
+        val a = player("A")
+        val s = player("S", Position(10f, 100f, 0f))
+        val secretA = connect(a, addrA)
+        val secretS = connect(s, addrB)
+
+        manager.report(a, "S", "spam")
+        assertFalse(last<Packet.Result>(a).ok, "nothing heard yet")
+
+        manager.onDatagram(addrB, clientDatagram(s, secretS, SvcPacket.Mic(byteArrayOf(0x08), 1, false)))
+        manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(0x08), 1, false)))
+        now += 30_000
+
+        manager.report(a, "s", "x".repeat(600))
+        val result = last<Packet.Result>(a)
+        assertEquals(ResultKind.REPORT, result.kind)
+        assertTrue(result.ok, result.message)
+        val id = result.message.removePrefix("Report #").substringBefore(' ').toInt()
+        assertTrue(File(reportDir, "$id/target.opus").length() > 0)
+        assertTrue(File(reportDir, "$id/reporter.opus").length() > 0)
+
+        manager.report(a, "S", "again")
+        assertFalse(last<Packet.Result>(a).ok, "1 per minute")
+
+        now += 121_000
+        manager.report(a, "S", "stale")
+        assertFalse(last<Packet.Result>(a).ok, "not heard in the last 2 minutes")
+
+        manager.leave(a)
+        manager.report(a, "S", "gone")
+        assertFalse(last<Packet.Result>(a).ok, "reporter must be on voice")
     }
 
     // --- abuse ---

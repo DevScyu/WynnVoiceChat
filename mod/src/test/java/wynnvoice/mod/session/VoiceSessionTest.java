@@ -17,6 +17,7 @@ import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.Relation;
+import wynnvoice.protocol.ResultKind;
 import wynnvoice.protocol.SocialAction;
 import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
@@ -26,6 +27,7 @@ class VoiceSessionTest {
 
     private final List<Packet> sent = new ArrayList<>();
     private final List<String> ended = new ArrayList<>();
+    private final List<Packet.Result> results = new ArrayList<>();
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
@@ -42,6 +44,11 @@ class VoiceSessionTest {
         @Override
         public void ended(String relayMessage) {
             ended.add(relayMessage);
+        }
+
+        @Override
+        public void result(Packet.Result result) {
+            results.add(result);
         }
 
         @Override
@@ -111,6 +118,23 @@ class VoiceSessionTest {
         session.onPacket(new Packet.Ended(EndReason.DISABLED, "relay off"));
         assertTrue(sent.isEmpty());
         assertEquals(List.of("relay off"), ended);
+    }
+
+    @Test
+    void requestsGoOutOnlyWhileAuthenticatedAndResultsAreSurfaced() {
+        assertFalse(session.request(new Packet.Block("Bob", true)));
+        assertTrue(sent.isEmpty());
+        session.onAuthenticated("WC1", "");
+        sent.clear();
+        assertTrue(session.request(new Packet.Report("Bob", "spam")));
+        assertEquals(List.of(new Packet.Report("Bob", "spam")), sent);
+
+        Packet.Result result = new Packet.Result(ResultKind.REPORT, true, "Report #1 filed");
+        session.onPacket(result);
+        assertEquals(List.of(result), results);
+
+        session.onClosed();
+        assertFalse(session.request(new Packet.Block("Bob", false)));
     }
 
     @Test

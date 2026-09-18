@@ -26,6 +26,9 @@ public final class VoiceSession {
         /** The relay ended the session for a reason other than a timeout; say so once. */
         void ended(String relayMessage);
 
+        /** The relay answered a block, unblock or report request. */
+        void result(Packet.Result result);
+
         void injectSecret(Packet.Secret secret);
 
         void injectStates(List<VoiceChatPayloads.State> states);
@@ -88,6 +91,13 @@ public final class VoiceSession {
         if (authenticated) effects.send(new Packet.Social(kind, action, names));
     }
 
+    /** Block, unblock or report; the relay closes the connection on packets sent before auth, so refuse those. */
+    public boolean request(Packet packet) {
+        if (!authenticated) return false;
+        effects.send(packet);
+        return true;
+    }
+
     private void join() {
         joinedInstance = instance;
         joinedTier = tier;
@@ -104,6 +114,7 @@ public final class VoiceSession {
                 if (svcDisabled || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
+            case Packet.Result result -> effects.result(result);
             case Packet.Peers peers -> {
                 lastPeers = peers.peers();
                 boolean anyParty = lastPeers.stream().anyMatch(peer -> peer.relation() == Relation.PARTY);

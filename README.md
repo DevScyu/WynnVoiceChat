@@ -139,6 +139,8 @@ To build:
 | `VOICE_RANGE`                       | `32`      | Proximity range in blocks; whispering halves it     |
 | `VOICE_EVERYONE_ENABLED`            | `false`   | Allow the everyone audience; otherwise tiers are capped at friends & guild |
 | `VOICE_RING_CAP_MB`                 | `512`     | Total memory kept for report audio evidence         |
+| `VOICE_REPORT_DIR`                  | `voice-reports` | Directory report audio is written to, one folder per report id |
+| `DB_PATH`                           | `voice.db` | SQLite file holding blocks, bans and reports; created on startup |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -171,6 +173,9 @@ the connection you get one chat line explaining why; leaving the world closes th
 | Command                                                   | Effect                                                    |
 |-----------------------------------------------------------|-----------------------------------------------------------|
 | `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
+| `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience    |
+| `/wynnvoice unblock <player>`                             | Lift a block                                              |
+| `/wynnvoice report <player> [reason]`                     | Report someone you heard in the last two minutes          |
 | `/wynnvoice enable`                                       | Turn voice on (shows the consent notice if still pending) |
 | `/wynnvoice disable`                                      | Turn voice off and disconnect                             |
 
@@ -183,6 +188,12 @@ public API (cached ten minutes), so a client can never claim a guild it is not i
 `EVERYONE` shows the rules once; until you accept them (`everyoneWarningAccepted`) the relay is
 told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may additionally cap the
 audience at friends & guild (`VOICE_EVERYONE_ENABLED`).
+
+Blocks are symmetric and permanent until lifted; the name is looked up among players on voice
+first, then on Mojang, so you can block someone who is offline. A report needs both of you on
+voice and the other player audible to you within the last two minutes; the relay then stores the
+last two minutes of their speech and yours as evidence, and answers in chat with the report id.
+Reports are limited to one per minute and ten per day.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

@@ -1,7 +1,10 @@
 package wynnvoice.server.voice
 
+import java.io.File
 import java.net.InetSocketAddress
+import java.net.URI
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -10,7 +13,10 @@ import org.slf4j.LoggerFactory
 import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Peer
+import wynnvoice.protocol.ResultKind
 import wynnvoice.protocol.VoiceTier
+import wynnvoice.server.ApiFetcher
+import wynnvoice.server.MojangSessionFetcher
 import wynnvoice.server.voice.svc.SvcCodec
 import wynnvoice.server.voice.svc.SvcCrypto
 import wynnvoice.server.voice.svc.SvcPacket
@@ -20,19 +26,23 @@ fun interface VoiceTransport {
 }
 
 /**
- * Relay brain: SVC session protocol over UDP, routing, ring buffers and peers sync.
+ * Relay brain: SVC session protocol over UDP, routing, ring buffers, peers sync, blocks and reports.
  * Thread-safe: called from the UDP event loop, the control TCP event loops and its own scheduler.
  */
 class VoiceManager(
     val config: VoiceConfig,
+    val moderation: VoiceModeration,
     private val transport: VoiceTransport,
+    private val mojang: ApiFetcher,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val logger = LoggerFactory.getLogger(VoiceManager::class.java)
 
     private val sessions = ConcurrentHashMap<UUID, VoiceSession>()
-    // ponytail: blocks arrive with the moderation ticket; until then nobody is blocked
-    private val router = VoiceRouter(config.range) { _, _ -> false }
+    private val router = VoiceRouter(config.range, moderation::isBlocked)
+
+    private val reportMinuteLimiters = ConcurrentHashMap<UUID, RateLimiter>()
+    private val reportDayLimiters = ConcurrentHashMap<UUID, RateLimiter>()
 
     private val unauthFailures = ConcurrentHashMap<String, RateLimiter>()
     private val ignoredIpsUntil = ConcurrentHashMap<String, Long>()
@@ -42,6 +52,10 @@ class VoiceManager(
     private var scheduler: ScheduledExecutorService? = null
 
     companion object {
+        const val REPORT_WINDOW_MS = 120_000L
+        private const val MAX_REASON_LENGTH = 500
+        private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
+        private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
         private const val UNCONNECTED_TIMEOUT_MS = 60_000L
         private const val PEERS_SYNC_MS = 2_000L
         private const val MAINTAIN_MS = 60_000L
@@ -97,6 +111,79 @@ class VoiceManager(
     fun leave(player: Player) {
         val session = sessions[player.uuid] ?: return
         if (session.player === player && sessions.remove(player.uuid, session)) recentlyLeft[player.uuid] = clock() + LEFT_GRACE_MS
+    }
+
+    fun block(player: Player, targetName: String, blocked: Boolean) {
+        val kind = if (blocked) ResultKind.BLOCK else ResultKind.UNBLOCK
+        resolveUuid(targetName).whenComplete { target, error ->
+            when {
+                error != null -> {
+                    logger.warn("Profile lookup for {} failed: {}", targetName, error.message)
+                    player.send(Packet.Result(kind, false, "Could not look up $targetName, try again later"))
+                }
+                target == null -> player.send(Packet.Result(kind, false, "Unknown player $targetName"))
+                target == player.uuid -> player.send(Packet.Result(kind, false, "You cannot block yourself"))
+                else -> {
+                    if (blocked) moderation.block(player.uuid, target) else moderation.unblock(player.uuid, target)
+                    player.send(Packet.Result(kind, true, (if (blocked) "Blocked " else "Unblocked ") + targetName))
+                }
+            }
+        }
+    }
+
+    fun report(player: Player, targetName: String, reason: String) {
+        val now = clock()
+        fun fail(message: String) = player.send(Packet.Result(ResultKind.REPORT, false, message))
+
+        val reporter = sessions[player.uuid]?.takeIf { it.player === player } ?: return fail("You are not on voice chat")
+        val target = sessionNamed(targetName) ?: return fail("$targetName is not on voice chat")
+        val heardAt = reporter.recentlyHeard[target.player.uuid]
+        if (heardAt == null || now - heardAt > REPORT_WINDOW_MS) return fail("You have not heard $targetName in the last 2 minutes")
+
+        val minute = reportMinuteLimiters.computeIfAbsent(player.uuid) { RateLimiter(1, 60_000) }
+        val day = reportDayLimiters.computeIfAbsent(player.uuid) { RateLimiter(10, 24 * 60 * 60_000L) }
+        if (!minute.tryAcquire(now) || !day.tryAcquire(now)) return fail("Too many reports, try again later")
+
+        val witnesses = reporter.recentlyHeard.filter { now - it.value <= REPORT_WINDOW_MS }.keys.toList()
+        val targetFrames = target.speech.snapshot()
+        val reporterFrames = reporter.speech.snapshot()
+
+        val id = moderation.createReport(
+            NewReport(
+                reporterId = player.uuid,
+                targetId = target.player.uuid,
+                reason = reason.take(MAX_REASON_LENGTH),
+                world = player.world ?: "",
+                instance = reporter.instance,
+                reporterPos = player.position,
+                targetPos = target.player.position,
+                witnesses = witnesses,
+                audioFrom = targetFrames.firstOrNull()?.timestampMs,
+                audioTo = targetFrames.lastOrNull()?.timestampMs,
+            )
+        )
+        // ponytail: file I/O on the caller's TCP event loop; reports are rare (≤10/day/user)
+        val dir = File(config.reportDir, id.toString()).apply { mkdirs() }
+        val targetPath = writeAudio(File(dir, "target.opus"), targetFrames)
+        val reporterPath = writeAudio(File(dir, "reporter.opus"), reporterFrames)
+        moderation.attachAudio(id, reporterPath, targetPath)
+        logger.info("Voice report #{}: {} -> {} ({} witnesses)", id, player.name, target.player.name, witnesses.size)
+        player.send(Packet.Result(ResultKind.REPORT, true, "Report #$id filed"))
+    }
+
+    private fun writeAudio(file: File, frames: List<SpeechRingBuffer.Frame>): String? {
+        if (frames.isEmpty()) return null
+        file.outputStream().use { OggOpusWriter.write(frames, it) }
+        return file.absolutePath
+    }
+
+    private fun sessionNamed(name: String) = sessions.values.firstOrNull { it.player.name.equals(name, ignoreCase = true) }
+
+    /** Live voice sessions first, then Mojang's profile API. */
+    private fun resolveUuid(name: String): CompletableFuture<UUID?> {
+        if (!USERNAME.matches(name)) return CompletableFuture.completedFuture(null)
+        sessionNamed(name)?.let { return CompletableFuture.completedFuture(it.player.uuid) }
+        return mojang.get(URI(PROFILE_URL + name)).thenApply { it?.let(MojangSessionFetcher::parseProfileId) }
     }
 
     // --- UDP side ---
@@ -223,6 +310,11 @@ class VoiceManager(
         unauthFailures.clear()
         ignoredIpsUntil.values.removeIf { it <= now }
         recentlyLeft.values.removeIf { it <= now }
+        for (uuid in moderation.activeBans(sessions.keys.toList())) {
+            val session = sessions.remove(uuid) ?: continue
+            recentlyLeft[uuid] = now + LEFT_GRACE_MS
+            session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat"))
+        }
         var total = sessions.values.sumOf { it.speech.bytes }
         if (total <= config.ringBufferCapBytes) return
         for (session in sessions.values.sortedBy { it.lastActivity }) {

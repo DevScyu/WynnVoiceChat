@@ -14,18 +14,25 @@ import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.Protocol
+import wynnvoice.protocol.ResultKind
 import wynnvoice.protocol.SocialAction
 import wynnvoice.protocol.SocialKind
 import wynnvoice.protocol.VoiceTier
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import wynnvoice.server.voice.VoiceBansTable
 import wynnvoice.server.voice.VoiceConfig
 import wynnvoice.server.voice.VoiceManager
+import wynnvoice.server.voice.testModeration
 
 class ControlHandlerTest {
     private val uuid = UUID.randomUUID()
     private var fetched: Pair<String, String>? = null
     private var authenticated: ControlHandler? = null
     private val config = VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000)
-    private var voice = VoiceManager(config, { _, _ -> })
+    private val moderation = testModeration("control-handler-test")
+    private fun manager(config: VoiceConfig) = VoiceManager(config, moderation, { _, _ -> }, { CompletableFuture.completedFuture(null) })
+    private var voice = manager(config)
     private var guildMembers: Set<String> = emptySet()
     private val guilds = GuildResolver({ uri ->
         CompletableFuture.completedFuture(
@@ -135,7 +142,7 @@ class ControlHandlerTest {
 
     @Test
     fun `disabled relay refuses at auth`() {
-        voice = VoiceManager(config.copy(enabled = false), { _, _ -> })
+        voice = manager(config.copy(enabled = false))
         val ch = channel { uuid }
         ch.hello()
         assertEquals(Packet.AuthResult(AuthStatus.DISABLED), ch.auth())
@@ -144,16 +151,37 @@ class ControlHandlerTest {
 
     @Test
     fun `allowlist refuses verified players who are not on it`() {
-        voice = VoiceManager(config.copy(allowedUuids = setOf(UUID.randomUUID())), { _, _ -> })
+        voice = manager(config.copy(allowedUuids = setOf(UUID.randomUUID())))
         val ch = channel { uuid }
         ch.hello()
         assertEquals(Packet.AuthResult(AuthStatus.NOT_ALLOWED), ch.auth())
         assertFalse(ch.isOpen)
 
-        voice = VoiceManager(config.copy(allowedUuids = setOf(uuid)), { _, _ -> })
+        voice = manager(config.copy(allowedUuids = setOf(uuid)))
         val allowed = channel { uuid }
         allowed.hello()
         assertEquals(Packet.AuthResult(AuthStatus.OK), allowed.auth())
+    }
+
+    @Test
+    fun `banned player is refused at auth`() {
+        transaction(moderation.db) { VoiceBansTable.insert { it[userId] = uuid; it[reason] = "r"; it[bannedBy] = "s"; it[bannedAt] = 0 } }
+        val ch = channel { uuid }
+        ch.hello()
+        assertEquals(Packet.AuthResult(AuthStatus.BANNED), ch.auth())
+        assertFalse(ch.isOpen)
+    }
+
+    @Test
+    fun `block and report packets are answered with a result`() {
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        ch.readOutbound<Packet.Secret>()
+        ch.writeInbound(Packet.Block("Player", true))
+        assertEquals(Packet.Result(ResultKind.BLOCK, false, "You cannot block yourself"), ch.readOutbound())
+        ch.writeInbound(Packet.Report("Nobody", "spam"))
+        assertEquals(Packet.Result(ResultKind.REPORT, false, "Nobody is not on voice chat"), ch.readOutbound())
+        assertTrue(ch.isOpen)
     }
 
     @Test

@@ -50,6 +50,8 @@ class ControlHandler(
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
             is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
             is Packet.Social -> player.apply(packet)
+            is Packet.Block -> voice.block(player, packet.targetName, packet.blocked)
+            is Packet.Report -> voice.report(player, packet.targetName, packet.reason)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
     }
@@ -87,6 +89,8 @@ class ControlHandler(
                     refuse(ctx, AuthStatus.SESSION_UNAVAILABLE)
                 }
                 verified != auth.uuid -> refuse(ctx, AuthStatus.BAD_SESSION)
+                // ponytail: one indexed SQLite read per login on the event loop; move onto the fetcher's thread if logins pile up
+                voice.moderation.isBanned(auth.uuid) -> refuse(ctx, AuthStatus.BANNED)
                 !voice.config.allows(auth.uuid) -> refuse(ctx, AuthStatus.NOT_ALLOWED)
                 else -> {
                     val verifiedPlayer = Player(auth.uuid, auth.username) { ctx.writeAndFlush(it) }

@@ -6,6 +6,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,7 +36,7 @@ class VoiceUdpServerTest {
         val tcp = ArrayList<Packet>()
         lateinit var manager: VoiceManager
         val udp = VoiceUdpServer(config.bindAddress, config.port) { address, bytes -> manager.onDatagram(address, bytes) }
-        manager = VoiceManager(config, udp)
+        manager = VoiceManager(config, testModeration("udp-server-test"), udp, { CompletableFuture.completedFuture(null) })
         udp.start()
         server = udp
 

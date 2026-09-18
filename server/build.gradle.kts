@@ -8,12 +8,16 @@ kotlin {
 }
 
 val nettyVersion: String by rootProject.extra { property("netty_version") as String }
+val exposedVersion = "1.5.0"
 
 dependencies {
     implementation(project(":protocol"))
     implementation("io.netty:netty-codec:$nettyVersion")
     implementation("io.netty:netty-transport:$nettyVersion")
     implementation("io.netty:netty-handler:$nettyVersion")
+    implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
+    implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     implementation("org.slf4j:slf4j-api:2.0.17")
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 
