@@ -18,6 +18,7 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
     implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
+    implementation("com.google.code.gson:gson:2.13.1")
     implementation("org.slf4j:slf4j-api:2.0.17")
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
 

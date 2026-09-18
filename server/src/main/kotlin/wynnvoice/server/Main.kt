@@ -1,6 +1,9 @@
 package wynnvoice.server
 
 import org.slf4j.LoggerFactory
+import wynnvoice.server.discord.DiscordConfig
+import wynnvoice.server.discord.DiscordModeration
+import wynnvoice.server.discord.HttpDiscordRest
 import wynnvoice.server.voice.VoiceConfig
 import wynnvoice.server.voice.VoiceManager
 import wynnvoice.server.voice.VoiceModeration
@@ -16,6 +19,7 @@ fun main() {
     lateinit var voice: VoiceManager
     val udp = VoiceUdpServer(voiceConfig.bindAddress, voiceConfig.port) { address, bytes -> voice.onDatagram(address, bytes) }
     voice = VoiceManager(voiceConfig, moderation, udp, api)
+    val discord = DiscordConfig.fromEnv()?.let { DiscordModeration(it, voice, HttpDiscordRest(it.botToken)) }
     val server = ControlServer(
         host = env("CONTROL_HOST", "0.0.0.0"),
         port = env("CONTROL_PORT", "9100").toInt(),
@@ -35,9 +39,12 @@ fun main() {
     } else {
         log.warn("VOICE_ENABLED is not true: every client is refused with DISABLED")
     }
+    if (discord != null) discord.start(env("HTTP_PORT", "9101").toInt())
+    else log.warn("Discord moderation disabled: set {} to enable it", DiscordConfig.VARIABLES.joinToString(", "))
     server.start()
     Runtime.getRuntime().addShutdownHook(Thread {
         server.stop()
+        discord?.stop()
         voice.stop()
         udp.stop()
     })

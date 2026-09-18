@@ -32,6 +32,8 @@ data class NewReport(
     val audioTo: Long?,
 )
 
+data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?)
+
 /**
  * Blocks, bans and report rows. Blocks are cached in memory because routing asks per mic frame;
  * bans are read on demand (auth) and by the 60 s poll in VoiceManager.
@@ -72,7 +74,39 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
+    fun blocksOf(blocker: UUID): Set<UUID> = blocks[blocker]?.toSet() ?: emptySet()
+
     fun isBanned(userId: UUID): Boolean = activeBans(listOf(userId)).isNotEmpty()
+
+    fun ban(userId: UUID, reason: String, bannedBy: String, expiresAt: Long?) {
+        val now = clock()
+        transaction(db) {
+            VoiceBansTable.insert {
+                it[VoiceBansTable.userId] = userId
+                it[VoiceBansTable.reason] = reason
+                it[VoiceBansTable.bannedBy] = bannedBy
+                it[bannedAt] = now
+                it[VoiceBansTable.expiresAt] = expiresAt
+            }
+        }
+    }
+
+    /** Lifts every active ban of the player; returns how many were lifted. */
+    fun unban(userId: UUID): Int {
+        val now = clock()
+        return transaction(db) {
+            VoiceBansTable.update({ (VoiceBansTable.userId eq userId) and VoiceBansTable.liftedAt.isNull() }) { it[liftedAt] = now }
+        }
+    }
+
+    fun activeBanRows(): List<Ban> {
+        val now = clock()
+        return transaction(db) {
+            VoiceBansTable.selectAll()
+                .where { VoiceBansTable.liftedAt.isNull() and (VoiceBansTable.expiresAt.isNull() or (VoiceBansTable.expiresAt greater now)) }
+                .map { Ban(it[VoiceBansTable.userId], it[VoiceBansTable.reason], it[VoiceBansTable.bannedBy], it[VoiceBansTable.expiresAt]) }
+        }
+    }
 
     fun activeBans(userIds: Collection<UUID>): Set<UUID> {
         if (userIds.isEmpty()) return emptySet()
@@ -109,6 +143,21 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
                 it[audioTo] = report.audioTo
                 it[createdAt] = now
             }.value
+        }
+    }
+
+    fun reportTarget(reportId: Int): UUID? = transaction(db) {
+        VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()?.get(VoiceReportsTable.targetId)
+    }
+
+    fun markHandled(reportId: Int, by: String) {
+        val now = clock()
+        transaction(db) {
+            VoiceReportsTable.update({ VoiceReportsTable.id eq reportId }) {
+                it[handled] = true
+                it[handledBy] = by
+                it[handledAt] = now
+            }
         }
     }
 

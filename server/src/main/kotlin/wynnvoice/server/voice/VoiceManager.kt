@@ -25,6 +25,15 @@ fun interface VoiceTransport {
     fun send(address: InetSocketAddress, bytes: ByteArray)
 }
 
+class FiledReport(
+    val id: Int,
+    val reporterName: String,
+    val targetName: String,
+    val report: NewReport,
+    val reporterAudio: File?,
+    val targetAudio: File?,
+)
+
 /**
  * Relay brain: SVC session protocol over UDP, routing, ring buffers, peers sync, blocks and reports.
  * Thread-safe: called from the UDP event loop, the control TCP event loops and its own scheduler.
@@ -50,6 +59,9 @@ class VoiceManager(
     private val recentlyLeft = ConcurrentHashMap<UUID, Long>()
 
     private var scheduler: ScheduledExecutorService? = null
+
+    /** Called after a report and its evidence are stored; must not throw or block. */
+    @Volatile var onReport: (FiledReport) -> Unit = {}
 
     companion object {
         const val REPORT_WINDOW_MS = 120_000L
@@ -148,39 +160,39 @@ class VoiceManager(
         val targetFrames = target.speech.snapshot()
         val reporterFrames = reporter.speech.snapshot()
 
-        val id = moderation.createReport(
-            NewReport(
-                reporterId = player.uuid,
-                targetId = target.player.uuid,
-                reason = reason.take(MAX_REASON_LENGTH),
-                world = player.world ?: "",
-                instance = reporter.instance,
-                reporterPos = player.position,
-                targetPos = target.player.position,
-                witnesses = witnesses,
-                audioFrom = targetFrames.firstOrNull()?.timestampMs,
-                audioTo = targetFrames.lastOrNull()?.timestampMs,
-            )
+        val newReport = NewReport(
+            reporterId = player.uuid,
+            targetId = target.player.uuid,
+            reason = reason.take(MAX_REASON_LENGTH),
+            world = player.world ?: "",
+            instance = reporter.instance,
+            reporterPos = player.position,
+            targetPos = target.player.position,
+            witnesses = witnesses,
+            audioFrom = targetFrames.firstOrNull()?.timestampMs,
+            audioTo = targetFrames.lastOrNull()?.timestampMs,
         )
+        val id = moderation.createReport(newReport)
         // ponytail: file I/O on the caller's TCP event loop; reports are rare (≤10/day/user)
         val dir = File(config.reportDir, id.toString()).apply { mkdirs() }
-        val targetPath = writeAudio(File(dir, "target.opus"), targetFrames)
-        val reporterPath = writeAudio(File(dir, "reporter.opus"), reporterFrames)
-        moderation.attachAudio(id, reporterPath, targetPath)
+        val targetAudio = writeAudio(File(dir, "target.opus"), targetFrames)
+        val reporterAudio = writeAudio(File(dir, "reporter.opus"), reporterFrames)
+        moderation.attachAudio(id, reporterAudio?.absolutePath, targetAudio?.absolutePath)
         logger.info("Voice report #{}: {} -> {} ({} witnesses)", id, player.name, target.player.name, witnesses.size)
         player.send(Packet.Result(ResultKind.REPORT, true, "Report #$id filed"))
+        onReport(FiledReport(id, player.name, target.player.name, newReport, reporterAudio, targetAudio))
     }
 
-    private fun writeAudio(file: File, frames: List<SpeechRingBuffer.Frame>): String? {
+    private fun writeAudio(file: File, frames: List<SpeechRingBuffer.Frame>): File? {
         if (frames.isEmpty()) return null
         file.outputStream().use { OggOpusWriter.write(frames, it) }
-        return file.absolutePath
+        return file
     }
 
     private fun sessionNamed(name: String) = sessions.values.firstOrNull { it.player.name.equals(name, ignoreCase = true) }
 
     /** Live voice sessions first, then Mojang's profile API. */
-    private fun resolveUuid(name: String): CompletableFuture<UUID?> {
+    fun resolveUuid(name: String): CompletableFuture<UUID?> {
         if (!USERNAME.matches(name)) return CompletableFuture.completedFuture(null)
         sessionNamed(name)?.let { return CompletableFuture.completedFuture(it.player.uuid) }
         return mojang.get(URI(PROFILE_URL + name)).thenApply { it?.let(MojangSessionFetcher::parseProfileId) }

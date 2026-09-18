@@ -141,6 +141,38 @@ To build:
 | `VOICE_RING_CAP_MB`                 | `512`     | Total memory kept for report audio evidence         |
 | `VOICE_REPORT_DIR`                  | `voice-reports` | Directory report audio is written to, one folder per report id |
 | `DB_PATH`                           | `voice.db` | SQLite file holding blocks, bans and reports; created on startup |
+| `HTTP_PORT`                         | `9101`    | HTTP port serving only `POST /discord`, the Discord interactions endpoint |
+| `DISCORD_APPLICATION_ID` / `DISCORD_GUILD_ID` | — | Application id and the server the `/voice` commands are registered in |
+| `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
+| `DISCORD_PUBLIC_KEY`                | —         | Application public key every interaction is verified against |
+| `DISCORD_MOD_ROLE_ID`               | —         | Role allowed to use the buttons and `/voice` commands, re-checked on every interaction |
+| `DISCORD_REPORT_CHANNEL_ID`         | —         | Channel reports are posted to |
+
+Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
+in SQLite and under `VOICE_REPORT_DIR` either way.
+
+#### Discord application setup
+
+1. Create an application at the [Discord developer portal](https://discord.com/developers/applications),
+   copy its **Application ID** and **Public Key** (General Information) into
+   `DISCORD_APPLICATION_ID` and `DISCORD_PUBLIC_KEY`.
+2. Under **Bot**, reset the token and put it in `DISCORD_BOT_TOKEN`.
+3. Invite the bot with the `bot` and `applications.commands` scopes (OAuth2 → URL Generator) and
+   the *Send Messages* and *Attach Files* permissions.
+4. In your server enable Developer Mode, copy the server id into `DISCORD_GUILD_ID`, the
+   moderator role id into `DISCORD_MOD_ROLE_ID` and the private report channel id into
+   `DISCORD_REPORT_CHANNEL_ID`; give the bot access to that channel.
+5. Put `HTTP_PORT` behind a reverse proxy with HTTPS and set the application's
+   **Interactions Endpoint URL** to `https://<your host>/discord`. Discord verifies the URL by
+   sending a signed ping, so the relay must be running with the variables above.
+6. The `/voice` commands are registered on every startup with default permissions set to
+   administrators only; grant the moderator role under Server Settings → Integrations → your
+   application → `/voice`. The relay refuses anyone without `DISCORD_MOD_ROLE_ID` regardless.
+
+Each report then appears in the channel as an embed with both audio files and `Ban 7d`,
+`Ban 30d`, `Ban permanent` and `Dismiss` buttons; `/voice ban <player> [days] [reason]`,
+`/voice unban <player>`, `/voice bans` and `/voice blocks <player>` cover the rest. A ban drops
+the player's live session within a minute and refuses their next connection with `BANNED`.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

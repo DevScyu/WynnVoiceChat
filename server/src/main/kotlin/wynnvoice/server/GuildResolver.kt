@@ -1,5 +1,6 @@
 package wynnvoice.server
 
+import com.google.gson.JsonParser
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
@@ -68,12 +69,13 @@ class GuildResolver(private val api: ApiFetcher, private val clock: () -> Long =
         private val log = LoggerFactory.getLogger(GuildResolver::class.java)
         const val CACHE_MS = 10 * 60_000L
         private const val BASE_URL = "https://api.wynncraft.com"
-        // ponytail: two regexes over the API's compact JSON; swap for a JSON library once the Discord ticket needs one
-        private val GUILD_UUID = Regex("\"guild\"\\s*:\\s*\\{[^{}]*?\"uuid\"\\s*:\\s*\"([0-9a-f-]{36})\"")
-        private val MEMBER = Regex("\"(\\w{1,16})\"\\s*:\\s*\\{\\s*\"uuid\"\\s*:")
+        fun parseGuildUuid(playerJson: String): UUID? =
+            JsonParser.parseString(playerJson).asJsonObject["guild"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("uuid")?.asString?.let(UUID::fromString)
 
-        fun parseGuildUuid(playerJson: String): UUID? = GUILD_UUID.find(playerJson)?.groupValues?.get(1)?.let(UUID::fromString)
-
-        fun parseMembers(guildJson: String): Set<String> = MEMBER.findAll(guildJson).map { it.groupValues[1] }.toSet()
+        /** `members` is keyed by rank, each rank by player name. */
+        fun parseMembers(guildJson: String): Set<String> =
+            JsonParser.parseString(guildJson).asJsonObject.getAsJsonObject("members").entrySet()
+                .filter { it.value.isJsonObject }
+                .flatMapTo(HashSet()) { it.value.asJsonObject.keySet() }
     }
 }

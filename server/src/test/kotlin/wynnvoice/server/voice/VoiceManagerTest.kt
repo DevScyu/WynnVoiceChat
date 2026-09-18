@@ -478,6 +478,8 @@ class VoiceManagerTest {
         manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(0x08), 1, false)))
         now += 30_000
 
+        var filed: FiledReport? = null
+        manager.onReport = { filed = it }
         manager.report(a, "s", "x".repeat(600))
         val result = last<Packet.Result>(a)
         assertEquals(ResultKind.REPORT, result.kind)
@@ -485,6 +487,10 @@ class VoiceManagerTest {
         val id = result.message.removePrefix("Report #").substringBefore(' ').toInt()
         assertTrue(File(reportDir, "$id/target.opus").length() > 0)
         assertTrue(File(reportDir, "$id/reporter.opus").length() > 0)
+        assertEquals(id, filed!!.id)
+        assertEquals("S", filed!!.targetName)
+        assertEquals(500, filed!!.report.reason.length)
+        assertEquals(File(reportDir, "$id/target.opus"), filed!!.targetAudio)
 
         manager.report(a, "S", "again")
         assertFalse(last<Packet.Result>(a).ok, "1 per minute")

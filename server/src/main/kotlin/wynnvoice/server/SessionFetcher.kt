@@ -1,5 +1,6 @@
 package wynnvoice.server
 
+import com.google.gson.JsonParser
 import java.io.IOException
 import java.net.URI
 import java.net.URLEncoder
@@ -31,11 +32,8 @@ class MojangSessionFetcher(
     }
 
     companion object {
-        // ponytail: one field, one regex; swap for a JSON library once the Wynncraft or Discord clients need one
-        private val ID_FIELD = Regex("\"id\"\\s*:\\s*\"([0-9a-fA-F]{32})\"")
-
         fun parseProfileId(json: String): UUID? {
-            val hex = ID_FIELD.find(json)?.groupValues?.get(1) ?: return null
+            val hex = JsonParser.parseString(json).asJsonObject["id"]?.asString?.takeIf { it.length == 32 } ?: return null
             return UUID(hex.substring(0, 16).toULong(16).toLong(), hex.substring(16).toULong(16).toLong())
         }
     }
