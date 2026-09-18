@@ -138,7 +138,7 @@ class VoiceManager(
         private const val OWNER = "owner"
         private val MUTING_RANKS = setOf(OWNER, "chief")
         /** World is a client-supplied string; only real Wynncraft worlds become label values. */
-        private val WORLD = Regex("WC\\d{1,3}")
+        private val WORLD = Regex("[A-Z]{2}\\d{1,3}")
         private const val UNCONNECTED_TIMEOUT_MS = 60_000L
         private const val PEERS_SYNC_MS = 2_000L
         private const val MAINTAIN_MS = 60_000L

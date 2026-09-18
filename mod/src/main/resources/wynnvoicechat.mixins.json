@@ -3,7 +3,7 @@
   "package": "wynnvoicechat.mod.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ChatListenerMixin",
+    "SystemChatMixin",
     "ConnectionMixin"
   ],
   "injectors": {

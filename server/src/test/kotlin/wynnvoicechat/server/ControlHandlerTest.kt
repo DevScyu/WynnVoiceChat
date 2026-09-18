@@ -52,7 +52,7 @@ class ControlHandlerTest {
             fetched = username to serverId
             runCatching { CompletableFuture.completedFuture(session()) }.getOrElse { CompletableFuture.failedFuture(it) }
         }
-        handler = ControlHandler(fetcher, guilds, voice) { authenticated = it }
+        handler = ControlHandler(fetcher, guilds, voice, { authenticated = it }, worldCheckDelayMs = 0)
         return EmbeddedChannel(handler)
     }
 
@@ -316,11 +316,17 @@ class ControlHandlerTest {
         playerStatus = ""","online":true,"server":"WC3""""
         val ch = ready()
         ch.writeInbound(Packet.World("WC12"))
+        ch.runPendingTasks()
+        answerPlayerLookup()
+        ch.runPendingTasks()
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         assertEquals(Packet.Ended(EndReason.WORLD_MISMATCH, "Wynncraft does not show you on WC12"), ch.readOutbound())
         assertNull(voice.sessionOf(uuid))
         assertTrue(ch.isOpen)
         ch.writeInbound(Packet.World("WC3"))
+        ch.runPendingTasks()
+        answerPlayerLookup()
+        ch.runPendingTasks()
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.readOutbound<Packet.Secret>()
         assertEquals("WC3", voice.sessionOf(uuid)!!.player.world)
@@ -333,9 +339,12 @@ class ControlHandlerTest {
         ch.hello()
         ch.auth()
         ch.writeInbound(Packet.World("WC12"))
+        ch.runPendingTasks()
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.readOutbound<Packet.Secret>()
         assertNull(ch.readOutbound())
+        assertEquals(2, playerLookups.size, "guild lookup and a fresh world check")
+        answerPlayerLookup()
         answerPlayerLookup()
         ch.runPendingTasks()
         assertEquals(Packet.Guild("GLD"), ch.readOutbound())
@@ -351,6 +360,9 @@ class ControlHandlerTest {
             uuid = UUID.randomUUID()
             val ch = ready()
             ch.writeInbound(Packet.World("WC12"))
+            ch.runPendingTasks()
+            answerPlayerLookup()
+            ch.runPendingTasks()
             ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
             ch.readOutbound<Packet.Secret>()
             assertNull(ch.readOutbound(), status)

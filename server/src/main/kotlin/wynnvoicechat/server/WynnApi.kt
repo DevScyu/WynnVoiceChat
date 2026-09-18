@@ -96,8 +96,8 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         }
     }
 
-    /** Whether Wynncraft agrees the player is on [world]; only a clear contradiction refuses. */
-    fun worldCheck(player: UUID, world: String): CompletableFuture<WorldCheck> = playerOf(player).thenApply { info ->
+    /** Whether Wynncraft agrees the player is on [world]; only a clear contradiction refuses. Always a fresh answer: a cached one predates the claim. */
+    fun worldCheck(player: UUID, world: String): CompletableFuture<WorldCheck> = playerOf(player, fresh = true).thenApply { info ->
         when {
             info == null -> WorldCheck.UNKNOWN
             info.restricted -> WorldCheck.RESTRICTED
@@ -108,7 +108,10 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         }.also { worldChecks.getValue(it).increment() }
     }
 
-    private fun playerOf(player: UUID) = cached(byPlayer, player, null) { fetch("/v3/player/$player").thenApply { it?.let(::parsePlayer) } }
+    private fun playerOf(player: UUID, fresh: Boolean = false): CompletableFuture<PlayerInfo?> {
+        if (fresh) byPlayer.remove(player)
+        return cached(byPlayer, player, null) { fetch("/v3/player/$player").thenApply { it?.let(::parsePlayer) } }
+    }
 
     private fun fetch(path: String) = api.get(URI(BASE_URL + path))
 

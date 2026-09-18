@@ -78,15 +78,15 @@ class WynnApiTest {
     }
 
     @Test
-    fun `world check and guild lookup share one cached player response`() {
+    fun `world check always refreshes the player response the guild lookup then reuses`() {
         serve("/v3/player/$player" to { playerJson("""{"uuid":"18d19092-684b-427b-aa58-574230befe79"}""", online = true, server = "WC12") }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
         assertEquals(WynnApi.WorldCheck.OK, resolver.worldCheck(player, "WC12").join())
         assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
+        assertEquals(2, requests.size, "guild lookup reuses the world check's player response")
         assertEquals(WynnApi.WorldCheck.MISMATCH, resolver.worldCheck(player, "WC1").join())
-        assertEquals(2, requests.size, "one player request serves both checks")
-        now += WynnApi.CACHE_MS
-        resolver.worldCheck(player, "WC12").join()
-        assertEquals(3, requests.size)
+        assertEquals(3, requests.size, "a new world claim is never judged on a cached response")
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
+        assertEquals(3, requests.size, "the guild lookup reuses the refreshed response")
     }
 
     @Test

@@ -917,14 +917,15 @@ class VoiceManagerTest {
     @Test
     fun `world label only accepts real worlds`() {
         connect(player("A", world = "WC12"), addrA)
-        connect(player("B", world = "WC12"), addrB)
+        connect(player("B", world = "EU7"), addrB)
         connect(player("C", world = "lobby-x\"} 9"), addrC)
         connect(player("D", world = null), InetSocketAddress("10.0.0.4", 1))
 
         manager.syncPeers()
 
         val scrape = registry.scrape()
-        assertEquals("2.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"WC12\"}"), scrape)
+        assertEquals("1.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"WC12\"}"), scrape)
+        assertEquals("1.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"EU7\"}"), scrape)
         assertEquals("2.0", MetricsTest.sample(scrape, "voice_sessions_by_world{world=\"other\"}"), scrape)
         assertFalse(scrape.contains("lobby"), scrape)
         assertEquals("4.0", MetricsTest.sample(scrape, "voice_sessions_by_version{version=\"other\"}"), scrape)

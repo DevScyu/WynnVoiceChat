@@ -5,11 +5,12 @@ import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Wynncraft prefixes every server notification with glyphs from its {@code chat/prefix} font and
- * soft-wraps long lines as {@code "\n" + glyphs + " "}; captured 2026-09-18. Player chat has no prefix.
+ * Wynncraft prefixes every server notification with icon glyphs (private use area) interleaved with
+ * negative-space glyphs (plane 12/13) from its {@code chat/prefix} font, and soft-wraps long lines as
+ * {@code "\n" + glyphs + " "}; captured 2026-09-18. Player chat has no prefix.
  */
 final class WynnChat {
-    private static final String GLYPHS = "[\\x{CFC00}-\\x{D03FF}]+";
+    private static final String GLYPHS = "[\\x{CFC00}-\\x{D03FF}\\uE000-\\uF8FF]+";
     private static final Pattern FORMATTING = Pattern.compile("§.");
     private static final Pattern SOFT_WRAP = Pattern.compile("\\s*\\n" + GLYPHS + " ");
     private static final Pattern PREFIX = Pattern.compile("^" + GLYPHS + " ");
