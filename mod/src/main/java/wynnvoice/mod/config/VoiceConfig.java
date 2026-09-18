@@ -26,6 +26,8 @@ public final class VoiceConfig {
     public VoiceTier tier = VoiceTier.PARTY;
     public int consentVersion;
     public boolean everyoneWarningAccepted;
+    /** A confirmed block or unblock also sends {@code /ignore add|remove <player>}. */
+    public boolean blockAlsoIgnores = true;
     private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {

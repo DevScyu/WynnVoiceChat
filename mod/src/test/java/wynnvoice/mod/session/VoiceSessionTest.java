@@ -29,6 +29,7 @@ class VoiceSessionTest {
     private final List<String> ended = new ArrayList<>();
     private final List<Packet.Result> results = new ArrayList<>();
     private final List<List<String>> blockLists = new ArrayList<>();
+    private final List<String> ignores = new ArrayList<>();
     private final List<int[]> joinedLines = new ArrayList<>();
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
@@ -56,6 +57,11 @@ class VoiceSessionTest {
         @Override
         public void blockList(List<String> names) {
             blockLists.add(names);
+        }
+
+        @Override
+        public void ignore(String player, boolean add) {
+            ignores.add((add ? "add " : "remove ") + player);
         }
 
         @Override
@@ -147,6 +153,25 @@ class VoiceSessionTest {
 
         session.onClosed();
         assertFalse(session.request(new Packet.Block("Bob", false)));
+    }
+
+    @Test
+    void confirmedBlockIgnoresOnceAndFailedBlockDoesNot() {
+        joined();
+        session.request(new Packet.Block("Bob", true));
+        assertTrue(ignores.isEmpty());
+        session.onPacket(new Packet.Result(ResultKind.BLOCK, false, "Unknown player Bob"));
+        assertTrue(ignores.isEmpty());
+
+        session.request(new Packet.Block("Bob", true));
+        session.onPacket(new Packet.Result(ResultKind.BLOCK, true, "Blocked Bob"));
+        session.onPacket(new Packet.Result(ResultKind.BLOCK, true, "Blocked Bob"));
+        assertEquals(List.of("add Bob"), ignores);
+
+        session.request(new Packet.Block("Bob", false));
+        session.onPacket(new Packet.Result(ResultKind.REPORT, true, "Report #1 filed"));
+        session.onPacket(new Packet.Result(ResultKind.UNBLOCK, true, "Unblocked Bob"));
+        assertEquals(List.of("add Bob", "remove Bob"), ignores);
     }
 
     @Test

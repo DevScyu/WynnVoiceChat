@@ -32,6 +32,7 @@ import wynnvoice.mod.session.VoiceSession;
 import wynnvoice.mod.svc.VoiceChatBridge;
 import wynnvoice.mod.svc.VoiceChatPayloads;
 import wynnvoice.mod.wynn.FriendsTracker;
+import wynnvoice.mod.wynn.IgnoreTracker;
 import wynnvoice.mod.wynn.PartyTracker;
 import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
@@ -56,6 +57,7 @@ public final class VoiceMod implements ClientModInitializer {
     private final WorldTracker worldTracker = new WorldTracker();
     private PartyTracker party;
     private FriendsTracker friends;
+    private final IgnoreTracker ignore = new IgnoreTracker(System::currentTimeMillis);
     private volatile boolean onWynncraft;
     private boolean svcInstalled;
     private boolean refused;
@@ -295,7 +297,7 @@ public final class VoiceMod implements ClientModInitializer {
         if (mod == null || !mod.onWynncraft || mod.party == null) return false;
         String text = message.getString();
         String realName = PartyTracker.realName(message);
-        return mod.party.onChat(text, realName) || mod.friends.onChat(text, realName);
+        return mod.party.onChat(text, realName) || mod.friends.onChat(text, realName) || mod.ignore.onChat(text, realName);
     }
 
     /** Wynncraft has no Simple Voice Chat server; its plugin messages are answered here and never sent. */
@@ -349,6 +351,13 @@ public final class VoiceMod implements ClientModInitializer {
             VoiceMod.chat(names.isEmpty()
                     ? Component.translatable("wynnvoice.blocks.empty")
                     : Component.translatable("wynnvoice.blocks", String.join(", ", names)), ChatFormatting.GREEN);
+        }
+
+        @Override
+        public void ignore(String player, boolean add) {
+            if (!instance.config.blockAlsoIgnores) return;
+            instance.ignore.expect(player);
+            sendCommand("ignore " + (add ? "add " : "remove ") + player);
         }
 
         @Override

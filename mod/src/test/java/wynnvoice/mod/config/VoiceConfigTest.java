@@ -61,16 +61,19 @@ class VoiceConfigTest {
         assertTrue(loaded.enabled);
         assertEquals(0, loaded.consentVersion);
         assertEquals("relay.example", loaded.relayHost);
+        assertTrue(loaded.blockAlsoIgnores);
 
         loaded.consentVersion = VoiceConfig.CONSENT_VERSION;
         loaded.everyoneWarningAccepted = true;
         loaded.enabled = false;
+        loaded.blockAlsoIgnores = false;
         loaded.save();
         VoiceConfig reloaded = VoiceConfig.load(file);
         assertFalse(reloaded.enabled);
         assertEquals(VoiceTier.EVERYONE, reloaded.tier);
         assertEquals(VoiceConfig.CONSENT_VERSION, reloaded.consentVersion);
         assertTrue(reloaded.everyoneWarningAccepted);
+        assertFalse(reloaded.blockAlsoIgnores);
         assertEquals(9100, reloaded.relayPort);
     }
 }

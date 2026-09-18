@@ -264,7 +264,8 @@ Minecraft directory, created on first launch:
   "enabled": true,
   "tier": "PARTY",
   "consentVersion": 0,
-  "everyoneWarningAccepted": false
+  "everyoneWarningAccepted": false,
+  "blockAlsoIgnores": true
 }
 ```
 
@@ -283,8 +284,8 @@ them can hear you (nothing is printed when nobody is).
 | `/wynnvoice who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
 | `/wynnvoice blocks`                                       | List the players you have blocked                         |
 | `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
-| `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience    |
-| `/wynnvoice unblock <player>`                             | Lift a block                                              |
+| `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
+| `/wynnvoice unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
 | `/wynnvoice report <player> [reason]`                     | Report someone you heard in the last two minutes          |
 | `/wynnvoice enable`                                       | Turn voice on (shows the consent notice if still pending) |
 | `/wynnvoice disable`                                      | Turn voice off and disconnect                             |
@@ -300,7 +301,9 @@ told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may addit
 audience at friends & guild (`VOICE_EVERYONE_ENABLED`).
 
 Blocks are symmetric and permanent until lifted; the name is looked up among players on voice
-first, then on Mojang, so you can block someone who is offline. A report needs both of you on
+first, then on Mojang, so you can block someone who is offline. Once the relay confirms a block
+the mod also sends `/ignore add <player>` (and `/ignore remove` on unblock) so text chat is
+silenced too; set `blockAlsoIgnores` to `false` to keep the two apart. A report needs both of you on
 voice and the other player audible to you within the last two minutes; the relay then stores the
 last two minutes of their speech and yours as evidence, and answers in chat with the report id.
 Reports are limited to one per minute and ten per day.

@@ -1,6 +1,7 @@
 package wynnvoice.mod.session;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -10,6 +11,7 @@ import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.Relation;
+import wynnvoice.protocol.ResultKind;
 import wynnvoice.protocol.SocialAction;
 import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
@@ -31,6 +33,9 @@ public final class VoiceSession {
 
         /** The relay answered a block list request. */
         void blockList(List<String> names);
+
+        /** The relay confirmed a block or unblock; mirror it in Wynncraft's ignore list. */
+        void ignore(String player, boolean add);
 
         /** First peer list of a session: how many are on voice on this world and how many of them can hear us. */
         void joined(int onVoice, int canHear);
@@ -64,6 +69,7 @@ public final class VoiceSession {
     private Packet.Position lastPosition;
     private List<Peer> lastPeers = List.of();
     private boolean peersAnnounced;
+    private final Map<ResultKind, String> pendingBlockTargets = new EnumMap<>(ResultKind.class);
     private EndReason lastRefusal;
 
     public VoiceSession(VoiceTier tier, Effects effects) {
@@ -105,6 +111,7 @@ public final class VoiceSession {
     /** Block, unblock or report; the relay closes the connection on packets sent before auth, so refuse those. */
     public boolean request(Packet packet) {
         if (!authenticated) return false;
+        if (packet instanceof Packet.Block block) pendingBlockTargets.put(block.blocked() ? ResultKind.BLOCK : ResultKind.UNBLOCK, block.targetName());
         effects.send(packet);
         return true;
     }
@@ -127,7 +134,11 @@ public final class VoiceSession {
                 if (svcDisabled || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
-            case Packet.Result result -> effects.result(result);
+            case Packet.Result result -> {
+                effects.result(result);
+                String target = pendingBlockTargets.remove(result.kind());
+                if (result.ok() && target != null) effects.ignore(target, result.kind() == ResultKind.BLOCK);
+            }
             case Packet.BlockListResult blocks -> effects.blockList(blocks.names());
             case Packet.Peers peers -> {
                 lastPeers = peers.peers();
