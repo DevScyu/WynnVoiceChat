@@ -30,7 +30,7 @@ class ControlServer(
     private val host: String,
     private val port: Int,
     private val sessions: SessionFetcher,
-    private val guilds: GuildResolver,
+    private val wynn: WynnApi,
     private val voice: VoiceManager,
     private val rateLimiter: ConnectionRateLimiter = ConnectionRateLimiter(),
     private val handshakeTimeoutSeconds: Int = 10,
@@ -66,7 +66,7 @@ class ControlServer(
         }
         open.incrementAndGet()
         handshaking.incrementAndGet()
-        val handler = ControlHandler(sessions, guilds, voice) { handshaking.decrementAndGet() }
+        val handler = ControlHandler(sessions, wynn, voice) { handshaking.decrementAndGet() }
         ch.closeFuture().addListener {
             rateLimiter.release(ip)
             open.decrementAndGet()

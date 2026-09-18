@@ -30,7 +30,7 @@ class ControlServerTest {
     private val voice = VoiceManager(VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000),
         testModeration("control-server-test"), { _, _ -> }, { CompletableFuture.completedFuture(null) })
     private val server = ControlServer("127.0.0.1", 0, { _, _ -> CompletableFuture.completedFuture(uuid) },
-        GuildResolver({ CompletableFuture.completedFuture(null) }), voice,
+        WynnApi({ CompletableFuture.completedFuture(null) }), voice,
         ConnectionRateLimiter(maxConcurrentPerIp = 2, maxPerMinutePerIp = 100))
     private val clientGroup = MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
 

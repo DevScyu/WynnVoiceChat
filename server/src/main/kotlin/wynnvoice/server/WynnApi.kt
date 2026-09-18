@@ -65,51 +65,78 @@ class HttpApiFetcher(
 }
 
 /**
- * Looks up a player's guild and its member names from the Wynncraft public API, so guild membership
- * can never be forged by a client. Lookups and their failures are cached for ten minutes.
+ * Player and guild lookups on the Wynncraft public API: guild membership can never be forged by a client,
+ * and a claimed world is spot-checked against the player's live status. Lookups and their failures are
+ * cached for ten minutes; the player response is shared by both checks.
  */
-class GuildResolver(private val api: ApiFetcher, private val clock: () -> Long = System::currentTimeMillis) {
+class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = System::currentTimeMillis) {
     enum class Lookup { HIT, MISS, NO_GUILD }
+    enum class WorldCheck {
+        OK, MISMATCH, OFFLINE, RESTRICTED, UNKNOWN;
+        val refuses get() = this == MISMATCH || this == OFFLINE
+    }
+    class PlayerInfo(val guild: UUID?, val online: Boolean?, val server: String?, val restricted: Boolean)
 
-    private class Cached(val expiresAt: Long, val members: CompletableFuture<Set<String>>)
+    private class Cached<T>(val expiresAt: Long, val value: CompletableFuture<T>)
 
-    private val byPlayer = ConcurrentHashMap<UUID, Cached>()
-    private val byGuild = ConcurrentHashMap<UUID, Cached>()
+    private val byPlayer = ConcurrentHashMap<UUID, Cached<PlayerInfo?>>()
+    private val byGuild = ConcurrentHashMap<UUID, Cached<Set<String>>>()
 
     fun membersOf(player: UUID): CompletableFuture<Set<String>> {
         val fresh = byPlayer[player]?.let { it.expiresAt > clock() } == true
         lookups.getValue(if (fresh) Lookup.HIT else Lookup.MISS).increment()
-        return cached(byPlayer, player) {
-            fetch("/v3/player/$player").thenCompose { body ->
-                when (val guild = body?.let(::parseGuildUuid)) {
-                    null -> CompletableFuture.completedFuture(emptySet<String>()).also { lookups.getValue(Lookup.NO_GUILD).increment() }
-                    else -> cached(byGuild, guild) { fetch("/v3/guild/uuid/$guild").thenApply { it?.let(::parseMembers) ?: emptySet() } }
-                }
+        return playerOf(player).thenCompose { info ->
+            when (val guild = info?.guild) {
+                null -> CompletableFuture.completedFuture(emptySet<String>()).also { if (!fresh) lookups.getValue(Lookup.NO_GUILD).increment() }
+                else -> cached(byGuild, guild, emptySet()) { fetch("/v3/guild/uuid/$guild").thenApply { it?.let(::parseMembers) ?: emptySet() } }
             }
         }
     }
 
+    /** Whether Wynncraft agrees the player is on [world]; only a clear contradiction refuses. */
+    fun worldCheck(player: UUID, world: String): CompletableFuture<WorldCheck> = playerOf(player).thenApply { info ->
+        when {
+            info == null -> WorldCheck.UNKNOWN
+            info.restricted -> WorldCheck.RESTRICTED
+            info.online == false -> WorldCheck.OFFLINE
+            info.server == null -> WorldCheck.UNKNOWN
+            info.server != world -> WorldCheck.MISMATCH
+            else -> WorldCheck.OK
+        }.also { worldChecks.getValue(it).increment() }
+    }
+
+    private fun playerOf(player: UUID) = cached(byPlayer, player, null) { fetch("/v3/player/$player").thenApply { it?.let(::parsePlayer) } }
+
     private fun fetch(path: String) = api.get(URI(BASE_URL + path))
 
-    private fun cached(cache: ConcurrentHashMap<UUID, Cached>, key: UUID, load: () -> CompletableFuture<Set<String>>): CompletableFuture<Set<String>> {
+    private fun <T> cached(cache: ConcurrentHashMap<UUID, Cached<T>>, key: UUID, fallback: T, load: () -> CompletableFuture<T>): CompletableFuture<T> {
         val now = clock()
-        cache.values.removeIf { it.expiresAt <= now && it.members.isDone }
+        cache.values.removeIf { it.expiresAt <= now && it.value.isDone }
         return cache.compute(key) { _, entry ->
             if (entry != null && entry.expiresAt > now) entry
             else Cached(now + CACHE_MS, load().exceptionally { error ->
-                log.warn("Guild lookup for {} failed: {}", key, error.message)
-                emptySet()
+                log.warn("Wynncraft lookup for {} failed: {}", key, error.message)
+                fallback
             })
-        }!!.members
+        }!!.value
     }
 
     companion object {
-        private val log = LoggerFactory.getLogger(GuildResolver::class.java)
+        private val log = LoggerFactory.getLogger(WynnApi::class.java)
         private val lookups = Metrics.registry.counters<Lookup>("voice_guild_lookups_total", "result")
+        private val worldChecks = Metrics.registry.counters<WorldCheck>("voice_world_checks_total", "result")
         const val CACHE_MS = 10 * 60_000L
         private const val BASE_URL = "https://api.wynncraft.com"
-        fun parseGuildUuid(playerJson: String): UUID? =
-            JsonParser.parseString(playerJson).asJsonObject["guild"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("uuid")?.asString?.let(UUID::fromString)
+
+        fun parsePlayer(playerJson: String): PlayerInfo {
+            val player = JsonParser.parseString(playerJson).asJsonObject
+            return PlayerInfo(
+                guild = player["guild"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("uuid")?.asString?.let(UUID::fromString),
+                online = player["online"]?.takeIf { it.isJsonPrimitive }?.asBoolean,
+                server = player["server"]?.takeIf { it.isJsonPrimitive }?.asString,
+                restricted = player["restrictions"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("onlineStatus")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
+            )
+        }
 
         /** `members` is keyed by rank, each rank by player name. */
         fun parseMembers(guildJson: String): Set<String> =

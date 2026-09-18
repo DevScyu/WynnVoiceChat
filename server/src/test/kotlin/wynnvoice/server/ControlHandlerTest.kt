@@ -28,7 +28,7 @@ import wynnvoice.server.voice.VoiceManager
 import wynnvoice.server.voice.testModeration
 
 class ControlHandlerTest {
-    private val uuid = UUID.randomUUID()
+    private var uuid = UUID.randomUUID()
     private var fetched: Pair<String, String>? = null
     private var authenticated: ControlHandler? = null
     private lateinit var handler: ControlHandler
@@ -37,11 +37,14 @@ class ControlHandlerTest {
     private fun manager(config: VoiceConfig) = VoiceManager(config, moderation, { _, _ -> }, { CompletableFuture.completedFuture(null) })
     private var voice = manager(config)
     private var guildMembers: Set<String> = emptySet()
-    private val guilds = GuildResolver({ uri ->
-        CompletableFuture.completedFuture(
-            if (uri.path.startsWith("/v3/player/")) """{"guild":{"uuid":"18d19092-684b-427b-aa58-574230befe79","name":"G"}}"""
-            else guildMembers.joinToString(",", "{\"members\":{\"owner\":{", "}}}") { "\"$it\":{\"uuid\":\"x\"}" })
+    private var playerStatus = ""
+    private var playerLookups = ArrayList<CompletableFuture<String?>>()
+    private val guilds = WynnApi({ uri ->
+        if (uri.path.startsWith("/v3/player/")) CompletableFuture<String?>().also(playerLookups::add)
+        else CompletableFuture.completedFuture(guildMembers.joinToString(",", "{\"members\":{\"owner\":{", "}}}") { "\"$it\":{\"uuid\":\"x\"}" })
     })
+
+    private fun answerPlayerLookup() = playerLookups.removeLastOrNull()?.complete("""{"guild":{"uuid":"18d19092-684b-427b-aa58-574230befe79","name":"G"}$playerStatus}""")
 
     private fun channel(session: () -> UUID?): EmbeddedChannel {
         val fetcher = SessionFetcher { username, serverId ->
@@ -60,6 +63,7 @@ class ControlHandlerTest {
     private fun ready(svcVersion: Int = 20): EmbeddedChannel = channel { uuid }.also {
         it.hello(svcVersion = svcVersion)
         it.auth()
+        answerPlayerLookup()
     }
 
     private fun EmbeddedChannel.auth(name: String = "Player", id: UUID = uuid): Packet.AuthResult? {
@@ -258,6 +262,52 @@ class ControlHandlerTest {
         assertEquals(setOf("Mate", "Player"), player.guildMembers)
         ch.writeInbound(Packet.Social(SocialKind.FRIENDS, SocialAction.SET, listOf("Impostor")))
         assertEquals(setOf("Mate", "Player"), player.guildMembers)
+    }
+
+    @Test
+    fun `world claim the api contradicts refuses joining until the claim changes`() {
+        playerStatus = ""","online":true,"server":"WC3""""
+        val ch = ready()
+        ch.writeInbound(Packet.World("WC12"))
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        assertEquals(Packet.Ended(EndReason.WORLD_MISMATCH, "Wynncraft does not show you on WC12"), ch.readOutbound())
+        assertNull(voice.sessionOf(uuid))
+        assertTrue(ch.isOpen)
+        ch.writeInbound(Packet.World("WC3"))
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        ch.readOutbound<Packet.Secret>()
+        assertEquals("WC3", voice.sessionOf(uuid)!!.player.world)
+    }
+
+    @Test
+    fun `a late api answer never delays the join but ends the session`() {
+        playerStatus = ""","online":false,"server":null"""
+        val ch = channel { uuid }
+        ch.hello()
+        ch.auth()
+        ch.writeInbound(Packet.World("WC12"))
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        ch.readOutbound<Packet.Secret>()
+        assertNull(ch.readOutbound())
+        answerPlayerLookup()
+        ch.runPendingTasks()
+        assertEquals(EndReason.WORLD_MISMATCH, ch.readOutbound<Packet.Ended>().reason)
+        assertNull(voice.sessionOf(uuid))
+        assertTrue(ch.isOpen)
+    }
+
+    @Test
+    fun `restricted or unknown status never refuses a world claim`() {
+        for (status in listOf(""","online":false,"server":null,"restrictions":{"onlineStatus":true}""", ""","online":true,"server":null""")) {
+            playerStatus = status
+            uuid = UUID.randomUUID()
+            val ch = ready()
+            ch.writeInbound(Packet.World("WC12"))
+            ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+            ch.readOutbound<Packet.Secret>()
+            assertNull(ch.readOutbound(), status)
+            assertEquals("WC12", voice.sessionOf(uuid)!!.player.world)
+        }
     }
 
     @Test

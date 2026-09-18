@@ -19,7 +19,7 @@ import wynnvoice.server.voice.VoiceManager
 
 class ControlHandler(
     private val sessions: SessionFetcher,
-    private val guilds: GuildResolver,
+    private val wynn: WynnApi,
     private val voice: VoiceManager,
     private val onAuthenticated: (ControlHandler) -> Unit = {},
 ) : SimpleChannelInboundHandler<Packet>() {
@@ -43,7 +43,7 @@ class ControlHandler(
         when {
             stage == Stage.HELLO && packet is Packet.Hello -> onHello(ctx, packet)
             stage == Stage.AUTH && packet is Packet.Auth -> onAuth(ctx, packet)
-            stage == Stage.READY -> onPacket(player!!, packet)
+            stage == Stage.READY -> onPacket(ctx, player!!, packet)
             else -> close(ctx, CloseReason.PROTOCOL_ERROR)
         }
     }
@@ -53,9 +53,9 @@ class ControlHandler(
         ctx.close()
     }
 
-    private fun onPacket(player: Player, packet: Packet) {
+    private fun onPacket(ctx: ChannelHandlerContext, player: Player, packet: Packet) {
         when (packet) {
-            is Packet.World -> player.world = packet.world.ifEmpty { null }
+            is Packet.World -> onWorld(ctx, player, packet.world.ifEmpty { null })
             is Packet.Position -> player.position = packet
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
             is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
@@ -65,6 +65,16 @@ class ControlHandler(
             is Packet.Report -> voice.report(player, packet.targetName, packet.reason)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
+    }
+
+    /** The claim takes effect at once; Wynncraft's verdict lands on the event loop later and only counts while the claim stands. */
+    private fun onWorld(ctx: ChannelHandlerContext, player: Player, world: String?) {
+        player.world = world
+        player.worldRefusal = null
+        if (world == null) return
+        wynn.worldCheck(player.uuid, world).thenAcceptAsync({ verdict ->
+            if (verdict.refuses && player.world == world) voice.worldMismatch(player, "Wynncraft does not show you on $world")
+        }, ctx.executor())
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
@@ -111,7 +121,7 @@ class ControlHandler(
                     authResults.getValue(AuthStatus.OK).increment()
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
                     voice.connected(verifiedPlayer)
-                    guilds.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
+                    wynn.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
                     onAuthenticated(this)
                 }
             }

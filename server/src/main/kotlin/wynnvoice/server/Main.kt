@@ -24,7 +24,7 @@ fun main() {
         host = env("CONTROL_HOST", "0.0.0.0"),
         port = env("CONTROL_PORT", "9100").toInt(),
         sessions = MojangSessionFetcher(),
-        guilds = GuildResolver(api),
+        wynn = WynnApi(api),
         voice = voice,
         rateLimiter = ConnectionRateLimiter(
             maxConcurrentPerIp = env("RATE_LIMIT_MAX_CONCURRENT_PER_IP", "5").toInt(),

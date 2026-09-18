@@ -11,6 +11,8 @@ import wynnvoice.protocol.SocialKind
  */
 class Player(val uuid: UUID, val name: String, val modVersion: String = "other", val send: (Packet) -> Unit) {
     @Volatile var world: String? = null
+    /** Set when Wynncraft contradicted [world]; refuses the next join until a new world is claimed. */
+    @Volatile var worldRefusal: String? = null
     @Volatile var position: Position? = null
     @Volatile var party: Set<String> = emptySet()
     @Volatile var friends: Set<String> = emptySet()
