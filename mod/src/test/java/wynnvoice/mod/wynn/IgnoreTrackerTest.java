@@ -1,31 +1,34 @@
 package wynnvoice.mod.wynn;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
 class IgnoreTrackerTest {
-    private long now = 10_000;
-    private final IgnoreTracker tracker = new IgnoreTracker(() -> now);
+    private static final String ADDED = WynnChatTest.P1 + "Syaoran3 has been added to your ignore list!";
+    private static final String REMOVED = WynnChatTest.P1 + "Syaoran3 has been removed from your ignore list!";
+
+    private final IgnoreTracker tracker = new IgnoreTracker();
 
     @Test
-    void matchesLinesNamingThePlayerAndIgnore() {
-        assertTrue(IgnoreTracker.matches("§e §aBob§e has been added to your ignore list!", "bob", null));
-        assertTrue(IgnoreTracker.matches("You are no longer ignoring Bob.", "Bob", null));
-        assertTrue(IgnoreTracker.matches("Nickname is now ignored.", "Bob", "Bob"));
-        assertFalse(IgnoreTracker.matches("Bob has been added to your friends!", "Bob", null));
-        assertFalse(IgnoreTracker.matches("Carol is now ignored.", "Bob", null));
+    void parsesTheIgnoreListNotifications() {
+        assertEquals("Syaoran3", IgnoreTracker.parse(ADDED));
+        assertEquals("Syaoran3", IgnoreTracker.parse(REMOVED));
+        assertNull(IgnoreTracker.parse(WynnChatTest.P1 + "Syaoran3 has been added to your friends!"));
+        assertNull(IgnoreTracker.parse("Syaoran3 has been added to your ignore list!"), "player chat carries no prefix");
     }
 
     @Test
-    void hidesOnlyWithinTheWindowAfterTheCommand() {
-        assertFalse(tracker.onChat("Bob is now ignored.", null));
-        tracker.expect("Bob");
-        assertTrue(tracker.onChat("Bob is now ignored.", null));
-        assertTrue(tracker.onChat("You will no longer see Bob's messages, ignore list updated.", null));
-        assertFalse(tracker.onChat("Bob: hello", null));
-        now += IgnoreTracker.WINDOW_MS + 1;
-        assertFalse(tracker.onChat("Bob is now ignored.", null));
+    void hidesOnlyTheResponseToOurCommandOnce() {
+        assertFalse(tracker.onChat(ADDED, null));
+        tracker.expect("syaoran3");
+        assertFalse(tracker.onChat(WynnChatTest.P1 + "Carol has been added to your ignore list!", null));
+        assertTrue(tracker.onChat(ADDED, null));
+        assertFalse(tracker.onChat(ADDED, null));
+        tracker.expect("Nick");
+        assertTrue(tracker.onChat(REMOVED, "Nick"), "nicknamed player resolved through the hover real name");
     }
 }

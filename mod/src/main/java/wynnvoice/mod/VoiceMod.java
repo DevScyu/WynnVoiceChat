@@ -60,7 +60,7 @@ public final class VoiceMod implements ClientModInitializer {
     private final WorldTracker worldTracker = new WorldTracker();
     private PartyTracker party;
     private FriendsTracker friends;
-    private final IgnoreTracker ignore = new IgnoreTracker(System::currentTimeMillis);
+    private final IgnoreTracker ignore = new IgnoreTracker();
     private volatile boolean onWynncraft;
     private boolean svcInstalled;
     private boolean refused;

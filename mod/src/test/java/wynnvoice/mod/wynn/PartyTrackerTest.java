@@ -13,20 +13,20 @@ import wynnvoice.mod.wynn.PartyTracker.Event;
 import wynnvoice.protocol.SocialAction;
 
 class PartyTrackerTest {
-    private static final String FIRST = "§e\uE005\uE002 ";
-    private static final String NEXT = "§e\uE001 ";
+    private static final String FIRST = WynnChatTest.P1;
+    private static final String NEXT = WynnChatTest.P2;
 
     @Test
-    void parsesPartyListWithLeaderColourAndOxfordComma() {
-        assertEquals(new Event.Listed(List.of("ShadowCat118", "ShadowCat117")),
-                PartyTracker.parse("§e\uE001 Party members: §bShadowCat118, and §fShadowCat117"));
+    void parsesPartyListWithOxfordComma() {
+        assertEquals(new Event.Listed(List.of("Scyu_")), PartyTracker.parse(NEXT + "Party members: Scyu_"));
+        assertEquals(new Event.Listed(List.of("Scyu_", "Syaoran3")), PartyTracker.parse(NEXT + "Party members: Scyu_, and Syaoran3"));
         assertEquals(new Event.Listed(List.of("e_z_x", "Saunt", "Dopeul", "IM_NoOne", "6bccy", "ShadowCat117")),
-                PartyTracker.parse("§e\uE005\uE002 Party members: §be_z_x, §fSaunt, Dopeul, IM_NoOne,§e §f6bccy, and ShadowCat117"));
+                PartyTracker.parse(FIRST + "Party members: §be_z_x, §fSaunt, Dopeul, IM_NoOne,§e §f6bccy, and ShadowCat117"));
     }
 
     @Test
     void parsesSoftWrappedPartyList() {
-        String wrapped = FIRST + "Party members: §bA, §fB, C, \n\uDAFF\uDFFC\uE001\uDB00\uDC06 D, and E";
+        String wrapped = NEXT + "Party members: A, B, C,\n" + NEXT + "D, and E";
         assertEquals(new Event.Listed(List.of("A", "B", "C", "D", "E")), PartyTracker.parse(wrapped));
     }
 
@@ -34,7 +34,8 @@ class PartyTrackerTest {
     void parsesMembershipMessages() {
         assertEquals(new Event.NotInParty(), PartyTracker.parse(FIRST + "You must be in a party to use this."));
         assertEquals(new Event.Created(), PartyTracker.parse(FIRST + "You have successfully created a party."));
-        assertEquals(new Event.Joined("Syaoran3"), PartyTracker.parse(NEXT + "Syaoran3 has joined your party, say hello!"));
+        assertEquals(new Event.Joined("Syaoran3"), PartyTracker.parse(FIRST + "Syaoran3 has joined your party, say hello!"));
+        assertEquals(new Event.Joined("Syaoran3"), PartyTracker.parse(NEXT + "§eSyaoran3 has joined your party, say hello!"));
         assertEquals(new Event.Left("Syaoran3"), PartyTracker.parse(FIRST + "Syaoran3 has left the party!"));
         assertEquals(new Event.Left("Syaoran3"), PartyTracker.parse(FIRST + "Syaoran3 has been kicked from the party!"));
         assertEquals(new Event.SelfLeft(), PartyTracker.parse(FIRST + "You have left your current party"));
@@ -42,7 +43,10 @@ class PartyTrackerTest {
         assertEquals(new Event.SelfLeft(), PartyTracker.parse(FIRST + "Your party has been disbanded"));
         assertEquals(new Event.Restored(), PartyTracker.parse(FIRST + "Your previous party was restored"));
         assertNull(PartyTracker.parse("§7[§r§8Syaoran3§r§7] §rhello"));
-        assertNull(PartyTracker.parse(FIRST + "Syaoran3§e is now the Party Leader!"));
+        assertNull(PartyTracker.parse(NEXT + "Syaoran3 is now the Party Leader!"));
+        assertNull(PartyTracker.parse(NEXT + "You are now the leader of this party! Type /party for a\n" + NEXT + "list of commands."));
+        assertNull(PartyTracker.parse("\n      §eYou have been invited to join Syaoran3's party!\n"));
+        assertNull(PartyTracker.parse(NEXT + "You have invited the player to the party."));
     }
 
     private final List<String> requests = new ArrayList<>();

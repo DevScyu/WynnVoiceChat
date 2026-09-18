@@ -12,19 +12,19 @@ import org.junit.jupiter.api.Test;
 import wynnvoice.mod.wynn.FriendsTracker.Event;
 
 class FriendsTrackerTest {
-    private static final String FIRST = "§a\uE008\uE002 ";
-    private static final String NEXT = "§a\uE001 ";
+    private static final String FIRST = WynnChatTest.P1;
+    private static final String NEXT = WynnChatTest.P2;
 
     @Test
     void parsesFriendList() {
-        assertEquals(new Event.Listed(List.of("Syaoran3", "bolyai", "ShadowCat118")),
-                FriendsTracker.parse(FIRST + "§eScyu_'s friends (3): §aSyaoran3, bolyai, ShadowCat118"));
+        assertEquals(new Event.Listed(List.of("DBlueDog", "Syaoran3", "ThaUnknown_")),
+                FriendsTracker.parse(FIRST + "Scyu_'s friends (3): §6DBlueDog, Syaoran3, ThaUnknown_"));
         assertEquals(new Event.Listed(List.of("Syaoran3")), FriendsTracker.parse(NEXT + "Scyu_'s friends (1): Syaoran3"));
     }
 
     @Test
     void parsesSoftWrappedFriendList() {
-        String wrapped = FIRST + "Scyu_'s friends (5): §aA, B, C, \n\uDAFF\uDFFC\uE001\uDB00\uDC06 D, E";
+        String wrapped = FIRST + "Scyu_'s friends (5): §6A, B, C,\n" + NEXT + "D, E";
         assertEquals(new Event.Listed(List.of("A", "B", "C", "D", "E")), FriendsTracker.parse(wrapped));
     }
 
@@ -34,9 +34,10 @@ class FriendsTrackerTest {
         assertEquals(new Event.NoFriendsHint(), FriendsTracker.parse(NEXT + "Try typing §6/friend add Username§e!"));
         assertEquals(new Event.Added("Syaoran3"), FriendsTracker.parse(FIRST + "Syaoran3 has been added to your friends!"));
         assertEquals(new Event.Removed("Syaoran3"), FriendsTracker.parse(FIRST + "Syaoran3 has been removed from your friends!"));
+        assertEquals(new Event.Added("Syaoran3"), FriendsTracker.parse(NEXT + "Syaoran3 has been added to your friends!"));
         assertNull(FriendsTracker.parse("§7[§r§8Syaoran3§r§7] §rhello"));
         assertNull(FriendsTracker.parse("§aSyaoran3§2 has logged into server §aEU16§2 as §aa Shaman"));
-        assertNull(FriendsTracker.parse("§e\uE005\uE002 Party members: §bScyu_, and §fSyaoran3"));
+        assertNull(FriendsTracker.parse(NEXT + "Party members: Scyu_, and Syaoran3"));
     }
 
     private final List<String> requests = new ArrayList<>();

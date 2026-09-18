@@ -23,9 +23,6 @@ public final class FriendsTracker {
         record Removed(String name) implements Event {}
     }
 
-    private static final Pattern FORMATTING = Pattern.compile("§.|[\\x{CFC00}-\\x{D03FF}]");
-    private static final String SOFT_WRAP = "\n\uE001 ";
-    private static final Pattern PREFIX = Pattern.compile("^(?:\uE008\uE002|\uE001) ");
     private static final Pattern LIST = Pattern.compile(".+'s? friends \\(.+\\): (.*)");
     private static final Pattern LIST_SEPARATOR = Pattern.compile(",(?: and)? ");
     private static final Pattern NO_FRIENDS = Pattern.compile("We couldn't find any friends\\.");
@@ -33,12 +30,10 @@ public final class FriendsTracker {
     private static final Pattern ADDED = Pattern.compile("(.+) has been added to your friends!");
     private static final Pattern REMOVED = Pattern.compile("(.+) has been removed from your friends!");
 
-    /** Formatting codes, alignment glyphs and Wynncraft's soft wraps removed; null unless it is a friend message. */
+    /** Null unless the line is a friend notification. */
     public static @Nullable Event parse(String message) {
-        String plain = FORMATTING.matcher(message).replaceAll("").replace(SOFT_WRAP, "");
-        Matcher prefix = PREFIX.matcher(plain);
-        if (!prefix.find()) return null;
-        String body = plain.substring(prefix.end());
+        String body = WynnChat.body(message);
+        if (body == null) return null;
         Matcher m;
         if ((m = LIST.matcher(body)).matches()) return new Event.Listed(List.of(LIST_SEPARATOR.split(m.group(1))));
         if (NO_FRIENDS.matcher(body).matches()) return new Event.NoFriends();
