@@ -109,4 +109,13 @@ class PartyTrackerTest {
         assertTrue(tracker.members().isEmpty());
         assertEquals(1, changes.size());
     }
+
+    @Test
+    void withoutACommandTheListIsParsedButNeverHidden() {
+        PartyTracker passive = new PartyTracker("Scyu_", null, (action, names) -> changes.add(action + names.toString()));
+        passive.requestList();
+        assertFalse(passive.onChat(NEXT + "Party members: Scyu_, and Syaoran3", null));
+        assertEquals(Set.of("Scyu_", "Syaoran3"), passive.members());
+        assertEquals(List.of("SET[Scyu_, Syaoran3]"), changes);
+    }
 }
