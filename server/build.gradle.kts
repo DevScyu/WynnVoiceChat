@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "2.3.0"
     application
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 kotlin {
@@ -38,4 +39,8 @@ tasks.test {
 
 tasks.jar {
     manifest.attributes("Implementation-Version" to project.version)
+}
+
+tasks.shadowJar {
+    mergeServiceFiles()
 }

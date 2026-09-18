@@ -109,22 +109,54 @@ To build:
 
 ### Installation
 
-1. Clone the repo
-   ```sh
-   git clone https://github.com/DevScyu/WynnVoiceChat.git
-   ```
-2. Build everything
-   ```sh
-   ./gradlew build
-   ```
-3. Drop `mod/build/libs/mod-<version>.jar` into your `mods` folder next to Fabric API and
-   Simple Voice Chat.
+Three mods go into your `mods` folder:
+
+1. [Fabric API][fabric-api-url]
+2. [Simple Voice Chat][svc-url]
+3. The WynnVoice jar from [Modrinth][modrinth-url] or the
+   [releases page](https://github.com/DevScyu/WynnVoiceChat/releases)
+
+Start the game once, then point `relayHost` in `config/wynnvoice.json` at the relay you use
+(see [Usage](#usage); the default is `localhost`). Join Wynncraft and accept the consent notice.
+
+To build the mod yourself instead:
+
+```sh
+git clone https://github.com/DevScyu/WynnVoiceChat.git
+cd WynnVoiceChat
+./gradlew build
+```
+
+The mod is `mod/build/libs/mod-<version>.jar` (the protocol classes are nested inside it), the
+relay is `server/build/libs/server-<version>-all.jar`.
 
 ### Running a relay
 
+Players do not need to run one; this is for whoever operates the relay the mod points at.
+The relay is a single self-contained jar (JRE 21 or newer):
+
 ```sh
-./gradlew :server:run
+VOICE_ENABLED=true VOICE_HOST=voice.example.com \
+  java -jar server/build/libs/server-<version>-all.jar
 ```
+
+or, during development, `./gradlew :server:run`.
+
+The `Dockerfile` builds the same jar and runs it on a JRE 21 image; `/data` holds the SQLite
+database and report audio:
+
+```sh
+docker build -t wynnvoice-relay .
+docker run -d --name wynnvoice-relay \
+  -p 9100:9100 -p 24454:24454/udp -p 127.0.0.1:9101:9101 \
+  -v wynnvoice-data:/data \
+  -e VOICE_ENABLED=true -e VOICE_HOST=voice.example.com \
+  wynnvoice-relay
+```
+
+Open TCP `CONTROL_PORT` and UDP `VOICE_PORT` to the internet. `HTTP_PORT` only ever serves
+`POST /discord` and must sit behind a reverse proxy that terminates HTTPS and forwards nothing
+but that path; leave `METRICS_PORT` on loopback. Every setting is an environment variable:
 
 | Variable                            | Default   | Meaning                                            |
 |-------------------------------------|-----------|----------------------------------------------------|
@@ -134,7 +166,7 @@ To build:
 | `RATE_LIMIT_MAX_HANDSHAKING`        | `500`     | Unauthenticated connections allowed at once         |
 | `VOICE_ENABLED`                     | `false`   | Must be `true`; otherwise every client is refused with `DISABLED` |
 | `VOICE_ALLOWED_UUIDS`               | —         | Comma-separated player UUIDs; when set, anyone else is refused with `NOT_ALLOWED` |
-| `VOICE_HOST`                        | —         | Public host Simple Voice Chat clients send audio to |
+| `VOICE_HOST`                        | required when enabled | Public host or IP Simple Voice Chat clients send audio to |
 | `VOICE_PORT` / `VOICE_BIND`         | `24454` / `0.0.0.0` | UDP port for audio and the address it binds to |
 | `VOICE_RANGE`                       | `32`      | Proximity range in blocks; whispering halves it     |
 | `VOICE_EVERYONE_ENABLED`            | `false`   | Allow the everyone audience; otherwise tiers are capped at friends & guild |
@@ -151,6 +183,27 @@ To build:
 
 Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
 in SQLite and under `VOICE_REPORT_DIR` either way.
+
+#### Reverse proxy for `/discord`
+
+Discord only calls HTTPS endpoints, and the relay speaks plain HTTP on `HTTP_PORT`, so put a
+proxy in front of it that forwards exactly one path. With nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name voice.example.com;
+    # ssl_certificate / ssl_certificate_key as usual
+
+    location = /discord {
+        proxy_pass http://127.0.0.1:9101;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+Do not proxy `/metrics` or anything else; the relay authenticates `/discord` requests by their
+Ed25519 signature and nothing else needs to be reachable over HTTP.
 
 #### Metrics
 
@@ -183,9 +236,9 @@ Rows older than 90 days are pruned automatically.
 4. In your server enable Developer Mode, copy the server id into `DISCORD_GUILD_ID`, the
    moderator role id into `DISCORD_MOD_ROLE_ID` and the private report channel id into
    `DISCORD_REPORT_CHANNEL_ID`; give the bot access to that channel.
-5. Put `HTTP_PORT` behind a reverse proxy with HTTPS and set the application's
-   **Interactions Endpoint URL** to `https://<your host>/discord`. Discord verifies the URL by
-   sending a signed ping, so the relay must be running with the variables above.
+5. With the reverse proxy above in place, set the application's **Interactions Endpoint URL**
+   (General Information) to `https://<your host>/discord`. Discord verifies the URL by sending a
+   signed ping, so the relay must already be running with the variables above.
 6. The `/voice` commands are registered on every startup with default permissions set to
    administrators only; grant the moderator role under Server Settings → Integrations → your
    application → `/voice`. The relay refuses anyone without `DISCORD_MOD_ROLE_ID` regardless.
@@ -257,12 +310,13 @@ Reports are limited to one per minute and ten per day.
 - [x] Shared protocol and relay authentication
 - [x] Mod connects and authenticates on world join
 - [x] Proximity voice on the same world and housing instance
-- [ ] Party tier: hear your party anywhere
-- [ ] Friends & guild tier
-- [ ] Consent screen, `/wynnvoice` command and config
-- [ ] Block and report with audio evidence
-- [ ] Discord-driven moderation
-- [ ] Modrinth release and Docker image for the relay
+- [x] Party tier: hear your party anywhere
+- [x] Friends & guild tier
+- [x] Consent screen, `/wynnvoice` command and config
+- [x] Block and report with audio evidence
+- [x] Discord-driven moderation
+- [x] Docker image for the relay
+- [ ] Modrinth release
 
 See the [open issues][issues-url] for a full list of proposed features and known issues.
 
@@ -330,6 +384,7 @@ Project link: [https://github.com/DevScyu/WynnVoiceChat](https://github.com/DevS
 [fabric-badge]: https://img.shields.io/badge/Fabric-1.21.11-DBD0B4?style=for-the-badge
 [fabric-url]: https://fabricmc.net/
 [fabric-api-url]: https://modrinth.com/mod/fabric-api
+[modrinth-url]: https://modrinth.com/mod/wynnvoice
 [svc-badge]: https://img.shields.io/badge/Simple%20Voice%20Chat-2.6-1E88E5?style=for-the-badge
 [svc-url]: https://modrinth.com/mod/simple-voice-chat
 [java-badge]: https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white
