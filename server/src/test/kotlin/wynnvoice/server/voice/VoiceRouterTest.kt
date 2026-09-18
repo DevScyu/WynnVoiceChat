@@ -11,7 +11,9 @@ import wynnvoice.protocol.VoiceTier
 
 class VoiceRouterTest {
     private val blocked = HashSet<Pair<UUID, UUID>>()
-    private val router = VoiceRouter(range = 32.0) { a, b -> (a to b) in blocked || (b to a) in blocked }
+    private val muted = HashSet<Pair<UUID, UUID>>()
+    private val router = VoiceRouter(range = 32.0, { a, b -> (a to b) in blocked || (b to a) in blocked }) { guild, member -> (guild to member) in muted }
+    private val guildId = UUID.fromString("18d19092-684b-427b-aa58-574230befe79")
 
     private fun participant(
         name: String,
@@ -23,7 +25,11 @@ class VoiceRouterTest {
         friends: Set<String> = emptySet(),
         guild: Set<String> = emptySet(),
         disabled: Boolean = false,
-    ) = VoiceParticipant(UUID.nameUUIDFromBytes(name.toByteArray()), name, world, instance, position, tier, disabled, party, friends, guild)
+        guildChannel: Boolean = false,
+    ) = VoiceParticipant(UUID.nameUUIDFromBytes(name.toByteArray()), name, world, instance, position, tier, disabled, party, friends, guild, guildId.takeIf { guild.isNotEmpty() }, guildChannel)
+
+    private fun guildmate(name: String, guildChannel: Boolean, tier: VoiceTier = VoiceTier.PARTY, world: String? = "WC7", position: Position? = Position(9999f, 0f, 9999f)) =
+        participant(name, tier = tier, world = world, position = position, guild = setOf("Me", "Mate", "Other"), guildChannel = guildChannel)
 
     private fun names(list: List<VoiceParticipant>) = list.map { it.name }
 
@@ -113,6 +119,54 @@ class VoiceRouterTest {
         val me = participant("Me")
         val r = router.route(me, listOf(me, participant("Quiet", disabled = true)), whispering = false)
         assertEquals(listOf("Quiet"), names(r.proximity))
+    }
+
+    @Test
+    fun `guild channel is group audio anywhere only when both opted in`() {
+        val me = guildmate("Me", guildChannel = true)
+        val on = guildmate("Mate", guildChannel = true)
+        val off = guildmate("Other", guildChannel = false)
+        val r = router.route(me, listOf(on, off), whispering = false)
+        assertEquals(listOf("Mate"), names(r.guild))
+        assertTrue(r.group.isEmpty())
+        assertTrue(r.proximity.isEmpty())
+        assertEquals(1, r.outcomes[RouteOutcome.GUILD.ordinal])
+        assertEquals(1, r.outcomes[RouteOutcome.TIER_DENIED.ordinal])
+        assertTrue(router.canTalk(me, on))
+        assertFalse(router.canTalk(me, off))
+        assertTrue(router.route(guildmate("Me", guildChannel = false), listOf(on), whispering = false).guild.isEmpty())
+    }
+
+    @Test
+    fun `party wins over guild channel and blocks win over both`() {
+        val me = guildmate("Me", guildChannel = true).copy(party = setOf("Mate"))
+        val mate = guildmate("Mate", guildChannel = true).copy(party = setOf("Me"))
+        val r = router.route(me, listOf(mate), whispering = false)
+        assertEquals(listOf("Mate"), names(r.group))
+        assertTrue(r.guild.isEmpty())
+
+        blocked.add(me.uuid to mate.uuid)
+        val b = router.route(me, listOf(mate), whispering = false)
+        assertTrue(b.group.isEmpty())
+        assertTrue(b.guild.isEmpty())
+        assertTrue(router.route(me, listOf(guildmate("Other", guildChannel = true).also { blocked.add(it.uuid to me.uuid) }), whispering = false).guild.isEmpty())
+    }
+
+    @Test
+    fun `a muted speaker hears the guild channel but is only heard nearby`() {
+        val me = guildmate("Me", guildChannel = true, tier = VoiceTier.EVERYONE, world = "WC1", position = Position(0f, 100f, 0f))
+        val far = guildmate("Mate", guildChannel = true)
+        val near = guildmate("Other", guildChannel = true, tier = VoiceTier.EVERYONE, world = "WC1", position = Position(10f, 100f, 0f))
+        muted.add(guildId to me.uuid)
+
+        val r = router.route(me, listOf(far, near), whispering = false)
+        assertTrue(r.guild.isEmpty())
+        assertEquals(listOf("Other"), names(r.proximity))
+        assertFalse(router.canTalk(me, far))
+        assertEquals(listOf("Me"), names(router.route(far, listOf(me), whispering = false).guild), "the muted member still hears the channel")
+
+        muted.clear()
+        assertEquals(setOf("Mate", "Other"), names(router.route(me, listOf(far, near), whispering = false).guild).toSet())
     }
 
     @Test

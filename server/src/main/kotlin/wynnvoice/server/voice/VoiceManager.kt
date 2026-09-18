@@ -49,6 +49,7 @@ enum class UdpDrop { IGNORED_IP, UNDECODABLE, NO_SESSION, DECRYPT_FAILED, UNKNOW
 enum class DeliverySkip { DISABLED, NOT_CONNECTED, NO_SESSION }
 enum class ReportOutcome { FILED, NOT_ON_VOICE, TARGET_NOT_ON_VOICE, NOT_HEARD, RATE_LIMITED }
 enum class BlockAction { BLOCK, UNBLOCK }
+enum class GuildMuteAction { MUTE, UNMUTE }
 
 /**
  * Relay brain: SVC session protocol over UDP, routing, ring buffers, peers sync, blocks and reports.
@@ -67,7 +68,7 @@ class VoiceManager(
     private val sessions = ConcurrentHashMap<UUID, VoiceSession>()
     /** Authenticated control connections, on voice or not. */
     private val players = ConcurrentHashMap<UUID, Player>()
-    private val router = VoiceRouter(config.range, moderation::isBlocked)
+    private val router = VoiceRouter(config.range, moderation::isBlocked, moderation::isGuildMuted)
 
     private val reportMinuteLimiters = ConcurrentHashMap<UUID, RateLimiter>()
     private val reportDayLimiters = ConcurrentHashMap<UUID, RateLimiter>()
@@ -104,6 +105,7 @@ class VoiceManager(
     private val reports = registry.counters<ReportOutcome>("voice_reports_total", "outcome")
     private val reportAudioBytes = DistributionSummary.builder("voice_report_audio_bytes").register(registry)
     private val blocks = registry.counters<BlockAction>("voice_blocks_total", "action")
+    private val guildMutes = registry.counters<GuildMuteAction>("voice_guild_mutes_total", "action")
     private val bansActive = AtomicInteger()
     // ponytail: names cached for the process lifetime; Mojang rate-limits repeat profile lookups per uuid
     private val profileNames = ConcurrentHashMap<UUID, String>()
@@ -123,6 +125,7 @@ class VoiceManager(
         private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
         private const val SESSION_PROFILE_URL = "https://sessionserver.mojang.com/session/minecraft/profile/"
         private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
+        private val MUTING_RANKS = setOf("owner", "chief")
         /** World is a client-supplied string; only real Wynncraft worlds become label values. */
         private val WORLD = Regex("WC\\d{1,3}")
         private const val UNCONNECTED_TIMEOUT_MS = 60_000L
@@ -181,11 +184,12 @@ class VoiceManager(
         player.send(Packet.Secret(session.secret, config.host, config.port, config.range, config.keepAliveMs))
     }
 
-    fun update(player: Player, tier: VoiceTier, instance: String, disabled: Boolean) {
+    fun update(player: Player, tier: VoiceTier, instance: String, disabled: Boolean, guildChannel: Boolean = false) {
         sessions[player.uuid]?.let {
             it.tier = clamp(tier)
             it.instance = instance
             it.disabled = disabled
+            it.guildChannel = guildChannel
         }
     }
 
@@ -243,6 +247,36 @@ class VoiceManager(
                     if (blocked) moderation.block(player.uuid, target) else moderation.unblock(player.uuid, target)
                     blocks.getValue(if (blocked) BlockAction.BLOCK else BlockAction.UNBLOCK).increment()
                     player.send(Packet.Result(kind, true, (if (blocked) "Blocked " else "Unblocked ") + targetName))
+                }
+            }
+        }
+    }
+
+    /** Owner and chiefs mute fellow members in the guild channel; the rank comes from the API, never the client. */
+    fun guildMute(player: Player, targetName: String, muted: Boolean, hours: Int) {
+        fun fail(message: String) = player.send(Packet.Result(ResultKind.GUILD_MUTE, false, message))
+        val guild = player.guildId ?: return fail("You are not in a guild")
+        if (player.guildRank !in MUTING_RANKS) return fail("Only the guild owner and chiefs can mute")
+        val member = player.guildMembers.firstOrNull { it.equals(targetName, ignoreCase = true) } ?: return fail("$targetName is not in your guild")
+        resolveUuid(member).whenComplete { target, error ->
+            when {
+                error != null -> {
+                    logger.warn("Profile lookup for {} failed: {}", member, error.message)
+                    fail("Could not look up $member, try again later")
+                }
+                target == null -> fail("Unknown player $member")
+                muted -> {
+                    val expiresAt = if (hours > 0) clock() + hours * 3_600_000L else null
+                    moderation.guildMute(guild, target, player.uuid, expiresAt)
+                    guildMutes.getValue(GuildMuteAction.MUTE).increment()
+                    logger.info("Guild mute: {} muted {} in {}{}", player.name, member, guild, if (hours > 0) " for $hours h" else "")
+                    player.send(Packet.Result(ResultKind.GUILD_MUTE, true, "Muted $member in the guild channel" + if (hours > 0) " for $hours h" else ""))
+                }
+                else -> {
+                    moderation.guildUnmute(guild, target)
+                    guildMutes.getValue(GuildMuteAction.UNMUTE).increment()
+                    logger.info("Guild mute: {} unmuted {} in {}", player.name, member, guild)
+                    player.send(Packet.Result(ResultKind.GUILD_MUTE, true, "Unmuted $member in the guild channel"))
                 }
             }
         }
@@ -423,11 +457,12 @@ class VoiceManager(
         // ponytail: O(voice sessions) per frame; index by world when voice users exceed ~1000
         val recipients = router.route(speaker, sessions.values.map { it.participant() }, mic.whispering)
         for (i in routeOutcomes.indices) routeOutcomes[i].increment(recipients.outcomes[i].toDouble())
-        fanout.record((recipients.group.size + recipients.proximity.size).toDouble())
+        fanout.record((recipients.group.size + recipients.guild.size + recipients.proximity.size).toDouble())
 
-        if (recipients.group.isNotEmpty()) {
+        if (recipients.group.isNotEmpty() || recipients.guild.isNotEmpty()) {
             val plain = SvcCodec.encode(SvcPacket.GroupSound(speaker.uuid, mic.data, mic.sequence))
             recipients.group.forEach { deliver(it.uuid, plain, speaker.uuid, now) }
+            recipients.guild.forEach { deliver(it.uuid, plain, speaker.uuid, now) }
         }
         val position = speaker.position
         if (recipients.proximity.isNotEmpty() && position != null) {
@@ -487,7 +522,7 @@ class VoiceManager(
             val group = router.route(self, participants, whispering = false).group.mapTo(HashSet()) { it.uuid }
             // Every voice user on the world gets an entry so SVC can show who has voice; audio stays tier-gated.
             val peers = participants
-                .filter { it.uuid != self.uuid && (it.uuid in group || (it.world != null && it.world == self.world)) }
+                .filter { it.uuid != self.uuid && (it.uuid in group || router.isGuildChannel(self, it) || (it.world != null && it.world == self.world)) }
                 .map { Peer(it.uuid, it.name, it.disabled, router.relation(self, it), router.canTalk(self, it)) }
                 .sortedBy { it.uuid }
             if (peers != session.lastPeers) {

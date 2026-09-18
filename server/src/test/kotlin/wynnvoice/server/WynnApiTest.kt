@@ -30,11 +30,13 @@ class WynnApiTest {
         responses = hashMapOf(*entries)
     }
 
+    private fun membersOf(player: UUID): Set<String> = resolver.guildOf(player).join()?.members?.keys ?: emptySet()
+
     @Test
     fun `parses guild uuid from the player and member names from the guild`() {
         assertEquals(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), WynnApi.parsePlayer(inGuild).guild)
         assertNull(WynnApi.parsePlayer(playerJson("null")).guild)
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), WynnApi.parseMembers(guildJson))
+        assertEquals(mapOf("Salted" to "owner", "Eilaa" to "chief", "Grian" to "recruit"), WynnApi.parseMembers(guildJson))
     }
 
     @Test
@@ -79,7 +81,7 @@ class WynnApiTest {
     fun `world check and guild lookup share one cached player response`() {
         serve("/v3/player/$player" to { playerJson("""{"uuid":"18d19092-684b-427b-aa58-574230befe79"}""", online = true, server = "WC12") }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
         assertEquals(WynnApi.WorldCheck.OK, resolver.worldCheck(player, "WC12").join())
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(player).join())
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
         assertEquals(WynnApi.WorldCheck.MISMATCH, resolver.worldCheck(player, "WC1").join())
         assertEquals(2, requests.size, "one player request serves both checks")
         now += WynnApi.CACHE_MS
@@ -92,7 +94,9 @@ class WynnApiTest {
         val hits = sample("voice_guild_lookups_total{result=\"hit\"}")
         val misses = sample("voice_guild_lookups_total{result=\"miss\"}")
         serve("/v3/player/$player" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(player).join())
+        val guild = resolver.guildOf(player).join()!!
+        assertEquals(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), guild.uuid)
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), guild.members.keys)
         assertEquals(listOf(
             "https://api.wynncraft.com/v3/player/$player",
             "https://api.wynncraft.com/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79",
@@ -100,39 +104,39 @@ class WynnApiTest {
 
         val mate = UUID.randomUUID()
         serve("/v3/player/$mate" to { inGuild })
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(mate).join())
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(player).join())
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(mate))
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
         assertEquals(3, requests.size, "guild members and the player's guild are cached")
         assertEquals(hits + 1, sample("voice_guild_lookups_total{result=\"hit\"}"))
         assertEquals(misses + 2, sample("voice_guild_lookups_total{result=\"miss\"}"))
 
         now += WynnApi.CACHE_MS
         serve("/v3/player/$player" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
-        resolver.membersOf(player).join()
+        membersOf(player)
         assertEquals(5, requests.size, "both lookups expire after ten minutes")
     }
 
     @Test
     fun `no guild, unknown player or api failure is empty until the cache expires`() {
         serve("/v3/player/$player" to { playerJson("null") })
-        assertEquals(emptySet(), resolver.membersOf(player).join())
+        assertEquals(emptySet(), membersOf(player))
         val unknown = UUID.randomUUID()
         serve("/v3/player/$unknown" to { null })
-        assertEquals(emptySet(), resolver.membersOf(unknown).join())
+        assertEquals(emptySet(), membersOf(unknown))
         val unlucky = UUID.randomUUID()
         serve("/v3/player/$unlucky" to { throw IllegalStateException("api down") })
-        assertEquals(emptySet(), resolver.membersOf(unlucky).join())
+        assertEquals(emptySet(), membersOf(unlucky))
         assertEquals(3, requests.size)
 
         serve("/v3/player/$unlucky" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { throw IllegalStateException("api down") })
-        assertEquals(emptySet(), resolver.membersOf(unlucky).join(), "failure is cached, not retried immediately")
+        assertEquals(emptySet(), membersOf(unlucky), "failure is cached, not retried immediately")
         assertEquals(3, requests.size)
 
         now += WynnApi.CACHE_MS
-        assertEquals(emptySet(), resolver.membersOf(unlucky).join())
+        assertEquals(emptySet(), membersOf(unlucky))
         assertEquals(5, requests.size)
         now += WynnApi.CACHE_MS
         serve("/v3/player/$unlucky" to { inGuild }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), resolver.membersOf(unlucky).join())
+        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(unlucky))
     }
 }

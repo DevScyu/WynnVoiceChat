@@ -48,6 +48,24 @@ class VoiceConfigTest {
     }
 
     @Test
+    void guildChannelWaitsForItsWarningAfterTheEveryoneOne() {
+        config.consentVersion = VoiceConfig.CONSENT_VERSION;
+        assertFalse(config.effectiveGuildChannel());
+        assertEquals(Notice.NONE, config.pendingNotice(true));
+
+        config.guildChannel = true;
+        assertFalse(config.effectiveGuildChannel());
+        assertEquals(Notice.GUILD_WARNING, config.pendingNotice(true));
+        config.tier = VoiceTier.EVERYONE;
+        assertEquals(Notice.EVERYONE_WARNING, config.pendingNotice(true));
+
+        config.everyoneWarningAccepted = true;
+        config.guildWarningAccepted = true;
+        assertTrue(config.effectiveGuildChannel());
+        assertEquals(Notice.NONE, config.pendingNotice(true));
+    }
+
+    @Test
     void oldConsentVersionAsksAgain() {
         config.consentVersion = VoiceConfig.CONSENT_VERSION - 1;
         assertEquals(Notice.CONSENT, config.pendingNotice(true));
@@ -62,7 +80,11 @@ class VoiceConfigTest {
         assertEquals(0, loaded.consentVersion);
         assertEquals("relay.example", loaded.relayHost);
         assertTrue(loaded.blockAlsoIgnores);
+        assertFalse(loaded.guildChannel);
+        assertFalse(loaded.guildWarningAccepted);
 
+        loaded.guildChannel = true;
+        loaded.guildWarningAccepted = true;
         loaded.consentVersion = VoiceConfig.CONSENT_VERSION;
         loaded.everyoneWarningAccepted = true;
         loaded.enabled = false;
@@ -74,6 +96,8 @@ class VoiceConfigTest {
         assertEquals(VoiceConfig.CONSENT_VERSION, reloaded.consentVersion);
         assertTrue(reloaded.everyoneWarningAccepted);
         assertFalse(reloaded.blockAlsoIgnores);
+        assertTrue(reloaded.guildChannel);
+        assertTrue(reloaded.guildWarningAccepted);
         assertEquals(9100, reloaded.relayPort);
     }
 }

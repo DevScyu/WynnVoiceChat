@@ -19,6 +19,7 @@ public final class ConsentScreen extends Screen {
     private static final int BODY_WIDTH = 400;
     private static final ChatFormatting[] CONSENT_COLOURS = {ChatFormatting.GOLD, ChatFormatting.WHITE, ChatFormatting.RED, ChatFormatting.WHITE, ChatFormatting.GREEN};
     private static final ChatFormatting[] EVERYONE_COLOURS = {ChatFormatting.WHITE, ChatFormatting.GREEN, ChatFormatting.RED};
+    private static final ChatFormatting[] GUILD_COLOURS = {ChatFormatting.WHITE, ChatFormatting.GREEN, ChatFormatting.YELLOW};
 
     private final Component body;
     private final Component acceptLabel;
@@ -46,6 +47,12 @@ public final class ConsentScreen extends Screen {
         return new ConsentScreen("wynnvoice.consent.everyone.title",
                 paragraphs(EVERYONE_COLOURS, "everyone.rules", "everyone.report", "everyone.ban"),
                 "wynnvoice.consent.everyone.accept", callback);
+    }
+
+    public static ConsentScreen guildWarning(Consumer<Boolean> callback) {
+        return new ConsentScreen("wynnvoice.consent.guild.title",
+                paragraphs(GUILD_COLOURS, "guild.channel", "guild.report", "guild.leave"),
+                "wynnvoice.consent.guild.accept", callback);
     }
 
     private static Component paragraphs(ChatFormatting[] colours, String... keys) {

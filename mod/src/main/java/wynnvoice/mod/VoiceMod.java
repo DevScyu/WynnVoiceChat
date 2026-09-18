@@ -150,27 +150,46 @@ public final class VoiceMod implements ClientModInitializer {
     }
 
     private void showNotice(Notice notice) {
+        if (notice == Notice.NONE) return;
         Minecraft minecraft = Minecraft.getInstance();
-        if (notice == Notice.NONE || minecraft.screen instanceof ConsentScreen) return;
-        minecraft.setScreen(notice == Notice.CONSENT
-                ? ConsentScreen.consent(accepted -> {
-                    if (!accepted) {
-                        setEnabled(false);
-                        return;
-                    }
-                    config.consentVersion = VoiceConfig.CONSENT_VERSION;
-                    setEnabled(true);
-                })
-                : ConsentScreen.everyoneWarning(accepted -> {
-                    if (accepted) {
-                        config.everyoneWarningAccepted = true;
-                    } else {
-                        config.tier = VoiceTier.PARTY;
-                        chat(Component.translatable("wynnvoice.command.tierSet", config.tier.name()), ChatFormatting.YELLOW);
-                    }
-                    saveConfig();
-                    if (session != null) session.setTier(config.effectiveTier());
-                }));
+        // Next frame: a command's chat screen closes after the command ran and would take our screen with it
+        minecraft.schedule(() -> {
+            if (!(minecraft.screen instanceof ConsentScreen)) minecraft.setScreen(screenFor(notice));
+        });
+    }
+
+    private ConsentScreen screenFor(Notice notice) {
+        return switch (notice) {
+            case CONSENT -> ConsentScreen.consent(accepted -> {
+                if (!accepted) {
+                    setEnabled(false);
+                    return;
+                }
+                config.consentVersion = VoiceConfig.CONSENT_VERSION;
+                setEnabled(true);
+            });
+            case EVERYONE_WARNING -> ConsentScreen.everyoneWarning(accepted -> {
+                if (accepted) {
+                    config.everyoneWarningAccepted = true;
+                } else {
+                    config.tier = VoiceTier.PARTY;
+                    chat(Component.translatable("wynnvoice.command.tierSet", config.tier.name()), ChatFormatting.YELLOW);
+                }
+                saveConfig();
+                if (session != null) session.setTier(config.effectiveTier());
+            });
+            case GUILD_WARNING -> ConsentScreen.guildWarning(accepted -> {
+                if (accepted) {
+                    config.guildWarningAccepted = true;
+                } else {
+                    config.guildChannel = false;
+                    chat(Component.translatable("wynnvoice.command.guildOff"), ChatFormatting.YELLOW);
+                }
+                saveConfig();
+                if (session != null) session.setGuildChannel(config.effectiveGuildChannel());
+            });
+            case NONE -> throw new IllegalArgumentException();
+        };
     }
 
     private void connectIfAllowed() {
@@ -184,6 +203,14 @@ public final class VoiceMod implements ClientModInitializer {
         Notice notice = config.pendingNotice(svcInstalled);
         if (notice == Notice.EVERYONE_WARNING && worldTracker.state().onWorld()) showNotice(notice);
         if (session != null) session.setTier(config.effectiveTier());
+    }
+
+    public void setGuildChannel(boolean on) {
+        config.guildChannel = on;
+        saveConfig();
+        Notice notice = config.pendingNotice(svcInstalled);
+        if (notice == Notice.GUILD_WARNING && worldTracker.state().onWorld()) showNotice(notice);
+        if (session != null) session.setGuildChannel(config.effectiveGuildChannel());
     }
 
     public boolean request(Packet packet) {
@@ -225,6 +252,7 @@ public final class VoiceMod implements ClientModInitializer {
                 .joinServer(minecraft.getUser().getProfileId(), minecraft.getUser().getAccessToken(), serverId);
         VoiceSession newSession = new VoiceSession(config.effectiveTier(), new Effects(minecraft));
         newSession.setSvcDisabled(svcDisabled);
+        newSession.setGuildChannel(config.effectiveGuildChannel());
         VoiceClient[] self = new VoiceClient[1];
         self[0] = client = new VoiceClient(identity, joiner, new VoiceClient.Listener() {
             @Override
@@ -313,7 +341,7 @@ public final class VoiceMod implements ClientModInitializer {
     private void onSvcPayload(VoiceChatBridge.Intercepted intercepted) {
         Identifier channel = intercepted.channel();
         if (channel.equals(VoiceChatPayloads.CREATE_GROUP) || channel.equals(VoiceChatPayloads.SET_GROUP) || channel.equals(VoiceChatPayloads.LEAVE_GROUP)) {
-            chat(Component.translatable("wynnvoice.groupsFollowParty"), ChatFormatting.YELLOW);
+            chat(Component.translatable("wynnvoice.groupsFollowParty", COMMAND), ChatFormatting.YELLOW);
             return;
         }
         if (!intercepted.data().isReadable()) return;
@@ -400,9 +428,10 @@ public final class VoiceMod implements ClientModInitializer {
         }
 
         @Override
-        public void injectPartyGroup(boolean joined) {
-            if (joined) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, VoiceSession.PARTY_GROUP, "Party"));
-            VoiceChatBridge.inject(VoiceChatPayloads.JOINED_GROUP, buf -> VoiceChatPayloads.writeJoinedGroup(buf, joined ? VoiceSession.PARTY_GROUP : null));
+        public void injectGroup(UUID group) {
+            // ponytail: the guild group is named "Guild", not after the prefix; the relay never tells the mod which guild it is in
+            if (group != null) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, group, group.equals(VoiceSession.PARTY_GROUP) ? "Party" : "Guild"));
+            VoiceChatBridge.inject(VoiceChatPayloads.JOINED_GROUP, buf -> VoiceChatPayloads.writeJoinedGroup(buf, group));
         }
     }
 }

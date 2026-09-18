@@ -45,7 +45,8 @@ class PacketRoundTripTest {
                 new Report("Someone", "slurs in voice"),
                 new Result(ResultKind.REPORT_OUTCOME, true, "Report #12 actioned"),
                 new BlockList(),
-                new BlockListResult(List.of("Alice", "Bob")));
+                new BlockListResult(List.of("Alice", "Bob")),
+                new GuildMute("Someone", true, 24));
     }
 
     @ParameterizedTest
@@ -67,7 +68,7 @@ class PacketRoundTripTest {
         Set<Class<?>> sampled = packets().map(Packet::getClass).collect(Collectors.toSet());
         Set<Class<?>> declared = Set.of(Packet.class.getPermittedSubclasses());
         assertEquals(declared, sampled);
-        assertEquals(17, declared.size());
+        assertEquals(18, declared.size());
     }
 
     @Test

@@ -51,17 +51,19 @@ public final class VoiceSession {
 
         Set<String> friends();
 
-        /** Put us in (or take us out of) the read-only SVC group that mirrors the Wynncraft party. */
-        void injectPartyGroup(boolean joined);
+        /** Put us in the read-only SVC group mirroring the party or guild channel, or in none. */
+        void injectGroup(UUID group);
     }
 
     public static final UUID PARTY_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000001");
+    public static final UUID GUILD_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000002");
 
     private final Effects effects;
     private VoiceTier tier;
     private boolean authenticated;
     private volatile boolean active;
-    private boolean inPartyGroup;
+    private UUID group;
+    private boolean guildChannel;
     private String instance = "";
     private String joinedInstance = "";
     private VoiceTier joinedTier;
@@ -81,6 +83,14 @@ public final class VoiceSession {
         if (tier == this.tier) return;
         this.tier = tier;
         pushUpdate();
+    }
+
+    public void setGuildChannel(boolean guildChannel) {
+        if (guildChannel == this.guildChannel) return;
+        this.guildChannel = guildChannel;
+        pushUpdate();
+        placeGroup();
+        syncStates();
     }
 
     public boolean isActive() {
@@ -129,9 +139,9 @@ public final class VoiceSession {
                 lastPosition = null;
                 lastPeers = List.of();
                 peersAnnounced = false;
-                inPartyGroup = false;
+                group = null;
                 effects.injectSecret(secret);
-                if (svcDisabled || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
+                if (svcDisabled || guildChannel || !instance.equals(joinedInstance) || tier != joinedTier) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Result result -> {
@@ -146,11 +156,7 @@ public final class VoiceSession {
                     peersAnnounced = true;
                     if (!lastPeers.isEmpty()) effects.joined(lastPeers.size(), (int) lastPeers.stream().filter(Peer::reachable).count());
                 }
-                boolean anyParty = lastPeers.stream().anyMatch(peer -> peer.relation() == Relation.PARTY);
-                if (anyParty != inPartyGroup) {
-                    inPartyGroup = anyParty;
-                    effects.injectPartyGroup(anyParty);
-                }
+                placeGroup();
                 syncStates();
             }
             default -> {}
@@ -194,20 +200,42 @@ public final class VoiceSession {
 
     private void pushUpdate() {
         if (!active) return;
-        effects.send(new Packet.Update(tier, instance, svcDisabled, false, false));
+        effects.send(new Packet.Update(tier, instance, svcDisabled, guildChannel, false));
+    }
+
+    /** One SVC group at a time: the party while any party peer is listed, else the guild channel while any member can hear us. */
+    private void placeGroup() {
+        if (!active) return;
+        UUID next = null;
+        for (Peer peer : lastPeers) {
+            UUID candidate = groupOf(peer, guildChannel);
+            if (candidate == PARTY_GROUP) {
+                next = PARTY_GROUP;
+                break;
+            }
+            if (candidate != null) next = candidate;
+        }
+        if (next == group) return;
+        group = next;
+        effects.injectGroup(next);
     }
 
     /** SVC draws nothing for players it has no state for, so non-voice players get an explicit "disconnected" state. */
     public void syncStates() {
         if (!active) return;
-        effects.injectStates(buildStates(lastPeers, effects.otherPlayers()));
+        effects.injectStates(buildStates(lastPeers, effects.otherPlayers(), guildChannel));
     }
 
-    public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others) {
+    // ponytail: guild peers who left the channel but stay reachable nearby still show in the group; the protocol has no channel flag
+    static UUID groupOf(Peer peer, boolean guildChannel) {
+        if (peer.relation() == Relation.PARTY) return PARTY_GROUP;
+        return guildChannel && peer.relation() == Relation.GUILD && peer.reachable() ? GUILD_GROUP : null;
+    }
+
+    public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others, boolean guildChannel) {
         List<VoiceChatPayloads.State> states = new ArrayList<>(peers.size() + others.size());
         for (Peer peer : peers) {
-            UUID group = peer.relation() == Relation.PARTY ? PARTY_GROUP : null;
-            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, group));
+            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, groupOf(peer, guildChannel)));
         }
         for (Map.Entry<UUID, String> other : others.entrySet()) {
             UUID uuid = other.getKey();

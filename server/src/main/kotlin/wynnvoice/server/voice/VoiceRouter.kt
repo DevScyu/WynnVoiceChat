@@ -19,41 +19,52 @@ data class VoiceParticipant(
     val party: Set<String>,
     val friends: Set<String>,
     val guildMembers: Set<String>,
+    val guildId: UUID?,
+    val guildChannel: Boolean,
 )
 
 /** Why a candidate did or did not get the speaker's audio, in the order the checks run. */
-enum class RouteOutcome { SELF, BLOCKED, GROUP, TIER_DENIED, WORLD_MISMATCH, INSTANCE_MISMATCH, POSITION_UNKNOWN, OUT_OF_RANGE, PROXIMITY }
+enum class RouteOutcome { SELF, BLOCKED, GROUP, GUILD, TIER_DENIED, WORLD_MISMATCH, INSTANCE_MISMATCH, POSITION_UNKNOWN, OUT_OF_RANGE, PROXIMITY }
 
 /** [outcomes] is indexed by [RouteOutcome.ordinal]: how many candidates ended up in each bucket. */
-class VoiceRecipients(val group: List<VoiceParticipant>, val proximity: List<VoiceParticipant>, val outcomes: IntArray)
+class VoiceRecipients(val group: List<VoiceParticipant>, val guild: List<VoiceParticipant>, val proximity: List<VoiceParticipant>, val outcomes: IntArray)
 
 /**
  * Decides who hears a speaker. Pure: no I/O, no session state.
  */
-class VoiceRouter(private val range: Double, private val isBlocked: (UUID, UUID) -> Boolean) {
+class VoiceRouter(
+    private val range: Double,
+    private val isBlocked: (UUID, UUID) -> Boolean,
+    private val isGuildMuted: (guild: UUID, member: UUID) -> Boolean = { _, _ -> false },
+) {
 
     fun route(speaker: VoiceParticipant, candidates: Collection<VoiceParticipant>, whispering: Boolean): VoiceRecipients {
         val distance = if (whispering) range / 2 else range
         val group = ArrayList<VoiceParticipant>()
+        val guild = ArrayList<VoiceParticipant>()
         val proximity = ArrayList<VoiceParticipant>()
         val outcomes = IntArray(RouteOutcome.entries.size)
+        val muted = isMuted(speaker)
 
         for (candidate in candidates) {
-            val outcome = outcomeOf(speaker, candidate, distance)
+            val outcome = outcomeOf(speaker, candidate, distance, muted)
             outcomes[outcome.ordinal]++
             when (outcome) {
                 RouteOutcome.GROUP -> group.add(candidate)
+                RouteOutcome.GUILD -> guild.add(candidate)
                 RouteOutcome.PROXIMITY -> proximity.add(candidate)
                 else -> Unit
             }
         }
-        return VoiceRecipients(group, proximity, outcomes)
+        return VoiceRecipients(group, guild, proximity, outcomes)
     }
 
-    private fun outcomeOf(speaker: VoiceParticipant, candidate: VoiceParticipant, distance: Double): RouteOutcome = when {
+    /** A muted speaker skips the guild channel but is still heard nearby like anyone else. */
+    private fun outcomeOf(speaker: VoiceParticipant, candidate: VoiceParticipant, distance: Double, muted: Boolean): RouteOutcome = when {
         candidate.uuid == speaker.uuid -> RouteOutcome.SELF
         isBlocked(speaker.uuid, candidate.uuid) -> RouteOutcome.BLOCKED
         isMutualParty(speaker, candidate) -> RouteOutcome.GROUP
+        !muted && isGuildChannel(speaker, candidate) -> RouteOutcome.GUILD
         !admits(speaker, candidate) || !admits(candidate, speaker) -> RouteOutcome.TIER_DENIED
         speaker.world == null || speaker.world != candidate.world -> RouteOutcome.WORLD_MISMATCH
         speaker.instance != candidate.instance -> RouteOutcome.INSTANCE_MISMATCH
@@ -62,9 +73,10 @@ class VoiceRouter(private val range: Double, private val isBlocked: (UUID, UUID)
         else -> RouteOutcome.PROXIMITY
     }
 
-    /** Whether two users could ever hear each other, ignoring distance: mutual party, or mutual admission. */
-    fun canTalk(a: VoiceParticipant, b: VoiceParticipant): Boolean =
-        !isBlocked(a.uuid, b.uuid) && (isMutualParty(a, b) || (admits(a, b) && admits(b, a)))
+    /** Whether [listener] could ever hear [speaker], ignoring distance: mutual party, guild channel, or mutual admission. */
+    fun canTalk(speaker: VoiceParticipant, listener: VoiceParticipant): Boolean =
+        !isBlocked(speaker.uuid, listener.uuid) &&
+            (isMutualParty(speaker, listener) || (!isMuted(speaker) && isGuildChannel(speaker, listener)) || (admits(speaker, listener) && admits(listener, speaker)))
 
     fun relation(a: VoiceParticipant, b: VoiceParticipant): Relation = when {
         isMutualParty(a, b) -> Relation.PARTY
@@ -75,6 +87,12 @@ class VoiceRouter(private val range: Double, private val isBlocked: (UUID, UUID)
 
     private fun isMutualParty(a: VoiceParticipant, b: VoiceParticipant) =
         a.party.contains(b.name) && b.party.contains(a.name)
+
+    /** Both opted into the guild channel and share a guild; a mute does not change membership, only who is heard. */
+    fun isGuildChannel(a: VoiceParticipant, b: VoiceParticipant) =
+        a.guildChannel && b.guildChannel && a.guildMembers.contains(b.name) && b.guildMembers.contains(a.name)
+
+    private fun isMuted(p: VoiceParticipant) = p.guildId?.let { isGuildMuted(it, p.uuid) } == true
 
     private fun admits(listener: VoiceParticipant, other: VoiceParticipant): Boolean = when (listener.tier) {
         VoiceTier.PARTY -> false

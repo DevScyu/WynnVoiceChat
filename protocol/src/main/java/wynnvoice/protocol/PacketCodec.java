@@ -111,6 +111,12 @@ public final class PacketCodec {
                 writeVarInt(out, p.names().size());
                 p.names().forEach(name -> writeString(out, name));
             }
+            case GuildMute p -> {
+                out.writeByte(17);
+                writeString(out, p.targetName());
+                out.writeBoolean(p.muted());
+                writeVarInt(out, p.hours());
+            }
         }
     }
 
@@ -141,6 +147,7 @@ public final class PacketCodec {
             case 14 -> new Result(readEnum(in, ResultKind.class), in.readBoolean(), readString(in));
             case 15 -> new BlockList();
             case 16 -> new BlockListResult(readStrings(in));
+            case 17 -> new GuildMute(readString(in), in.readBoolean(), readVarInt(in));
             default -> throw new DecoderException("Unknown packet id " + id);
         };
     }

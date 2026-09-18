@@ -235,13 +235,14 @@ class ControlHandlerTest {
         val ch = ready()
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.writeInbound(Packet.Position(1f, 2f, 3f))
-        ch.writeInbound(Packet.Update(VoiceTier.PARTY, "housing:X", true, false, false))
+        ch.writeInbound(Packet.Update(VoiceTier.PARTY, "housing:X", true, true, false))
         ch.writeInbound(Packet.World(""))
         val session = voice.sessionOf(uuid)!!
         assertEquals(Position(1f, 2f, 3f), session.player.position)
         assertEquals(VoiceTier.PARTY, session.tier)
         assertEquals("housing:X", session.instance)
         assertTrue(session.disabled)
+        assertTrue(session.guildChannel)
         assertNull(session.player.world)
     }
 
@@ -262,6 +263,24 @@ class ControlHandlerTest {
         assertEquals(setOf("Mate", "Player"), player.guildMembers)
         ch.writeInbound(Packet.Social(SocialKind.FRIENDS, SocialAction.SET, listOf("Impostor")))
         assertEquals(setOf("Mate", "Player"), player.guildMembers)
+        assertEquals(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), player.guildId)
+        assertEquals("owner", player.guildRank)
+    }
+
+    @Test
+    fun `guild mute packets are answered with a result`() {
+        guildMembers = setOf("Mate", "Player")
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.PARTY, ""))
+        ch.readOutbound<Packet.Secret>()
+        ch.writeInbound(Packet.GuildMute("Stranger", true, 0))
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Stranger is not in your guild"), ch.readOutbound())
+        ch.writeInbound(Packet.GuildMute("player", true, 2))
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Muted Player in the guild channel for 2 h"), ch.readOutbound())
+        assertTrue(moderation.isGuildMuted(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), uuid))
+        ch.writeInbound(Packet.GuildMute("Player", false, 0))
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Unmuted Player in the guild channel"), ch.readOutbound())
+        assertFalse(moderation.isGuildMuted(UUID.fromString("18d19092-684b-427b-aa58-574230befe79"), uuid))
     }
 
     @Test

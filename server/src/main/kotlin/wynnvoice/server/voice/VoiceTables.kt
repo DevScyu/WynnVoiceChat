@@ -11,6 +11,16 @@ object VoiceBlocksTable : Table("voice_blocks") {
     override val primaryKey = PrimaryKey(blocker, blocked)
 }
 
+/** One active mute per guild and member; unmuting deletes the row. */
+object GuildMutesTable : Table("guild_mutes") {
+    val guildId = javaUUID("guild_id")
+    val targetId = javaUUID("target_id")
+    val mutedBy = javaUUID("muted_by")
+    val expiresAt = long("expires_at").nullable()
+    val createdAt = long("created_at")
+    override val primaryKey = PrimaryKey(guildId, targetId)
+}
+
 object VoiceBansTable : IntIdTable("voice_bans") {
     val userId = javaUUID("user_id").index()
     val reason = text("reason")

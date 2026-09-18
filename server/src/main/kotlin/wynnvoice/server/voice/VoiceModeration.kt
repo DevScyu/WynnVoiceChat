@@ -42,32 +42,42 @@ enum class Verdict { ACTIONED, DISMISSED }
 
 data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?)
 
+class GuildMute(val guildId: UUID, val expiresAt: Long?)
+
 enum class DbOp {
-    INIT, BLOCK, UNBLOCK, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, MARK_HANDLED, ATTACH_AUDIO,
+    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, MARK_HANDLED, ATTACH_AUDIO,
     PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
 }
 
 /**
- * Blocks, bans and report rows. Blocks are cached in memory because routing asks per mic frame;
+ * Blocks, guild mutes, bans and report rows. Blocks and mutes are cached in memory because routing asks per mic frame;
  * bans are read on demand (auth) and by the 60 s poll in VoiceManager.
  */
 class VoiceModeration(val db: Database, private val clock: () -> Long = System::currentTimeMillis) {
     private val logger = LoggerFactory.getLogger(VoiceModeration::class.java)
 
     private val blocks = ConcurrentHashMap<UUID, MutableSet<UUID>>()
+    // ponytail: one mute per target; a player is in one guild at a time, so a mute from another guild never applies
+    private val guildMutes = ConcurrentHashMap<UUID, GuildMute>()
 
     private fun <T> db(op: DbOp, statement: JdbcTransaction.() -> T): T =
         DB_TIMERS.getValue(op).recordCallable { transaction(db, statement = statement) }
 
     fun init() {
         db(DbOp.INIT) {
-            SchemaUtils.create(VoiceBlocksTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable)
+            SchemaUtils.create(VoiceBlocksTable, GuildMutesTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable)
             SchemaUtils.addMissingColumnsStatements(VoiceReportsTable).forEach { exec(it) }
         }
         blocks.clear()
         db(DbOp.INIT) { VoiceBlocksTable.selectAll().map { it[VoiceBlocksTable.blocker] to it[VoiceBlocksTable.blocked] } }
             .forEach { (blocker, blocked) -> blocks.computeIfAbsent(blocker) { ConcurrentHashMap.newKeySet() }.add(blocked) }
-        logger.info("Voice moderation loaded: {} blocks", blockCount)
+        guildMutes.clear()
+        val now = clock()
+        db(DbOp.INIT) {
+            GuildMutesTable.deleteWhere { expiresAt less now }
+            GuildMutesTable.selectAll().map { it[GuildMutesTable.targetId] to GuildMute(it[GuildMutesTable.guildId], it[GuildMutesTable.expiresAt]) }
+        }.forEach { (target, mute) -> guildMutes[target] = mute }
+        logger.info("Voice moderation loaded: {} blocks, {} guild mutes", blockCount, guildMutes.size)
     }
 
     val blockCount: Int get() = blocks.values.sumOf { it.size }
@@ -96,6 +106,33 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     }
 
     fun blocksOf(blocker: UUID): Set<UUID> = blocks[blocker]?.toSet() ?: emptySet()
+
+    fun isGuildMuted(guildId: UUID, target: UUID): Boolean {
+        val mute = guildMutes[target] ?: return false
+        return mute.guildId == guildId && (mute.expiresAt == null || mute.expiresAt > clock())
+    }
+
+    fun guildMute(guildId: UUID, target: UUID, by: UUID, expiresAt: Long?) {
+        guildMutes[target] = GuildMute(guildId, expiresAt)
+        val now = clock()
+        db(DbOp.GUILD_MUTE) {
+            GuildMutesTable.deleteWhere { targetId eq target }
+            GuildMutesTable.insert {
+                it[GuildMutesTable.guildId] = guildId
+                it[targetId] = target
+                it[mutedBy] = by
+                it[GuildMutesTable.expiresAt] = expiresAt
+                it[createdAt] = now
+            }
+        }
+    }
+
+    fun guildUnmute(guildId: UUID, target: UUID) {
+        guildMutes.computeIfPresent(target) { _, mute -> mute.takeIf { it.guildId != guildId } }
+        db(DbOp.GUILD_UNMUTE) {
+            GuildMutesTable.deleteWhere { (GuildMutesTable.guildId eq guildId) and (targetId eq target) }
+        }
+    }
 
     fun isBanned(userId: UUID): Boolean = activeBans(listOf(userId)).isNotEmpty()
 

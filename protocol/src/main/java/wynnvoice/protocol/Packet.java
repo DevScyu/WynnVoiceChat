@@ -71,4 +71,7 @@ public sealed interface Packet {
     record BlockList() implements Packet {}
 
     record BlockListResult(List<String> names) implements Packet {}
+
+    /** Mute or unmute a fellow guild member in the guild channel; {@code hours} 0 means until unmuted. */
+    record GuildMute(String targetName, boolean muted, int hours) implements Packet {}
 }

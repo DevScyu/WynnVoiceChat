@@ -76,19 +76,22 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         val refuses get() = this == MISMATCH || this == OFFLINE
     }
     class PlayerInfo(val guild: UUID?, val online: Boolean?, val server: String?, val restricted: Boolean)
+    /** [members] maps player name to rank (`owner`, `chief`, `strategist`, `captain`, `recruiter`, `recruit`). */
+    class Guild(val uuid: UUID, val members: Map<String, String>)
 
     private class Cached<T>(val expiresAt: Long, val value: CompletableFuture<T>)
 
     private val byPlayer = ConcurrentHashMap<UUID, Cached<PlayerInfo?>>()
-    private val byGuild = ConcurrentHashMap<UUID, Cached<Set<String>>>()
+    private val byGuild = ConcurrentHashMap<UUID, Cached<Guild?>>()
 
-    fun membersOf(player: UUID): CompletableFuture<Set<String>> {
+    /** The player's guild with every member's rank, or null when they have none or the API failed. */
+    fun guildOf(player: UUID): CompletableFuture<Guild?> {
         val fresh = byPlayer[player]?.let { it.expiresAt > clock() } == true
         lookups.getValue(if (fresh) Lookup.HIT else Lookup.MISS).increment()
         return playerOf(player).thenCompose { info ->
             when (val guild = info?.guild) {
-                null -> CompletableFuture.completedFuture(emptySet<String>()).also { if (!fresh) lookups.getValue(Lookup.NO_GUILD).increment() }
-                else -> cached(byGuild, guild, emptySet()) { fetch("/v3/guild/uuid/$guild").thenApply { it?.let(::parseMembers) ?: emptySet() } }
+                null -> CompletableFuture.completedFuture(null as Guild?).also { if (!fresh) lookups.getValue(Lookup.NO_GUILD).increment() }
+                else -> cached(byGuild, guild, null) { fetch("/v3/guild/uuid/$guild").thenApply { json -> json?.let { Guild(guild, parseMembers(it)) } } }
             }
         }
     }
@@ -139,9 +142,10 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         }
 
         /** `members` is keyed by rank, each rank by player name. */
-        fun parseMembers(guildJson: String): Set<String> =
+        fun parseMembers(guildJson: String): Map<String, String> =
             JsonParser.parseString(guildJson).asJsonObject.getAsJsonObject("members").entrySet()
                 .filter { it.value.isJsonObject }
-                .flatMapTo(HashSet()) { it.value.asJsonObject.keySet() }
+                .flatMap { (rank, names) -> names.asJsonObject.keySet().map { it to rank } }
+                .toMap()
     }
 }

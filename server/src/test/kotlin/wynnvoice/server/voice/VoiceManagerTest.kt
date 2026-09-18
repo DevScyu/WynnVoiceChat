@@ -73,6 +73,19 @@ class VoiceManagerTest {
         }
     }
 
+    private val guildId = UUID.fromString("18d19092-684b-427b-aa58-574230befe79")
+
+    private fun guildmate(name: String, rank: String = "recruit", world: String? = "WC1", position: Position? = Position(0f, 100f, 0f)) = player(name, position, world).also {
+        it.guildMembers = setOf("A", "G", "H")
+        it.guildId = guildId
+        it.guildRank = rank
+    }
+
+    private fun mic(player: Player, address: InetSocketAddress, secret: ByteArray, sequence: Long = 1) {
+        transport.clear()
+        manager.onDatagram(address, clientDatagram(player, secret, SvcPacket.Mic(byteArrayOf(1), sequence, whispering = false)))
+    }
+
     private fun sentTo(player: Player) = tcp[player.uuid]!!
     private inline fun <reified P> last(player: Player): P = sentTo(player).last() as P
 
@@ -277,6 +290,78 @@ class VoiceManagerTest {
         val expected = SvcCodec.encode(SvcPacket.LocationSound(a.uuid, 0.0, 100.0, 0.0, byteArrayOf(1), 1, 32f))
         assertContentEquals(expected, decodeServer(secretF, transport.sent.single { it.first == addrB }.second))
         assertContentEquals(expected, decodeServer(secretG, transport.sent.single { it.first == addrC }.second))
+    }
+
+    @Test
+    fun `guild channel is group audio across worlds for members who opted in, party first`() {
+        val a = guildmate("A")
+        val g = guildmate("G", world = "WC9")
+        val h = guildmate("H", world = "WC9")
+        val secretA = connect(a, addrA, tier = VoiceTier.PARTY)
+        val secretG = connect(g, addrB, tier = VoiceTier.PARTY)
+        connect(h, addrC, tier = VoiceTier.PARTY)
+        manager.update(a, VoiceTier.PARTY, "", disabled = false, guildChannel = true)
+        manager.update(g, VoiceTier.PARTY, "", disabled = false, guildChannel = true)
+
+        mic(a, addrA, secretA)
+        assertEquals(listOf(addrB), transport.sent.map { it.first })
+        assertContentEquals(SvcCodec.encode(SvcPacket.GroupSound(a.uuid, byteArrayOf(1), 1)), decodeServer(secretG, transport.sent.single().second))
+        assertEquals(1.0, sample("voice_route_candidates_total{outcome=\"guild\"}"))
+
+        manager.syncPeers()
+        val peers = last<Packet.Peers>(a).peers
+        assertEquals(listOf(g.uuid), peers.map { it.uuid }, "opted-in guild mates are listed across worlds, others are not")
+        assertEquals(Relation.GUILD, peers.single().relation)
+        assertTrue(peers.single().reachable)
+
+        a.party = setOf("G")
+        g.party = setOf("A")
+        mic(a, addrA, secretA, sequence = 2)
+        assertEquals(listOf(addrB), transport.sent.map { it.first })
+        assertEquals(1.0, sample("voice_route_candidates_total{outcome=\"group\"}"))
+        assertEquals(1.0, sample("voice_route_candidates_total{outcome=\"guild\"}"))
+    }
+
+    @Test
+    fun `guild mute needs owner or chief rank and a fellow member, silences the channel only and expires`() {
+        val a = guildmate("A")
+        val g = guildmate("G", world = "WC9")
+        val secretA = connect(a, addrA, tier = VoiceTier.PARTY)
+        val secretG = connect(g, addrB, tier = VoiceTier.PARTY)
+        manager.update(a, VoiceTier.PARTY, "", disabled = false, guildChannel = true)
+        manager.update(g, VoiceTier.PARTY, "", disabled = false, guildChannel = true)
+
+        manager.guildMute(a, "G", muted = true, hours = 1)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Only the guild owner and chiefs can mute"), last<Packet.Result>(a))
+        a.guildRank = "chief"
+        manager.guildMute(a, "Nobody", muted = true, hours = 1)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "Nobody is not in your guild"), last<Packet.Result>(a))
+        val guildless = player("X")
+        manager.guildMute(guildless, "G", muted = true, hours = 1)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, false, "You are not in a guild"), last<Packet.Result>(guildless))
+
+        manager.guildMute(a, "g", muted = true, hours = 1)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Muted G in the guild channel for 1 h"), last<Packet.Result>(a))
+        assertEquals(1.0, sample("voice_guild_mutes_total{action=\"mute\"}"))
+
+        mic(g, addrB, secretG)
+        assertTrue(transport.sent.isEmpty(), "muted member is not heard in the channel")
+        mic(a, addrA, secretA)
+        assertEquals(listOf(addrB), transport.sent.map { it.first }, "muted member still hears the channel")
+        manager.syncPeers()
+        assertFalse(last<Packet.Peers>(g).peers.single().reachable)
+
+        now += 3_600_001
+        mic(g, addrB, secretG, sequence = 2)
+        assertEquals(listOf(addrA), transport.sent.map { it.first }, "mute expired")
+
+        manager.guildMute(a, "G", muted = true, hours = 0)
+        mic(g, addrB, secretG, sequence = 3)
+        assertTrue(transport.sent.isEmpty())
+        manager.guildMute(a, "G", muted = false, hours = 0)
+        assertEquals(Packet.Result(ResultKind.GUILD_MUTE, true, "Unmuted G in the guild channel"), last<Packet.Result>(a))
+        mic(g, addrB, secretG, sequence = 4)
+        assertEquals(listOf(addrA), transport.sent.map { it.first })
     }
 
     @Test

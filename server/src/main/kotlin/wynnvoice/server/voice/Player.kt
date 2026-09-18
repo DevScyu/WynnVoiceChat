@@ -17,6 +17,9 @@ class Player(val uuid: UUID, val name: String, val modVersion: String = "other",
     @Volatile var party: Set<String> = emptySet()
     @Volatile var friends: Set<String> = emptySet()
     @Volatile var guildMembers: Set<String> = emptySet()
+    /** Guild uuid and the player's own rank, from the Wynncraft API alongside [guildMembers]. */
+    @Volatile var guildId: UUID? = null
+    @Volatile var guildRank: String? = null
 
     fun apply(social: Packet.Social) {
         val current = when (social.kind) {

@@ -15,7 +15,7 @@ public final class VoiceConfig {
     /** Bump when the consent notice changes materially; users must accept again. */
     public static final int CONSENT_VERSION = 1;
 
-    public enum Notice { NONE, CONSENT, EVERYONE_WARNING }
+    public enum Notice { NONE, CONSENT, EVERYONE_WARNING, GUILD_WARNING }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Logger LOG = LoggerFactory.getLogger("wynnvoice");
@@ -28,6 +28,9 @@ public final class VoiceConfig {
     public boolean everyoneWarningAccepted;
     /** A confirmed block or unblock also sends {@code /ignore add|remove <player>}. */
     public boolean blockAlsoIgnores = true;
+    /** Hear and be heard by guild members anywhere, unless in a party. */
+    public boolean guildChannel;
+    public boolean guildWarningAccepted;
     private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {
@@ -68,10 +71,20 @@ public final class VoiceConfig {
         return needsEveryoneWarning() ? VoiceTier.PARTY : tier;
     }
 
+    private boolean needsGuildWarning() {
+        return guildChannel && !guildWarningAccepted;
+    }
+
+    /** The guild channel is only honoured once its warning was accepted. */
+    public boolean effectiveGuildChannel() {
+        return guildChannel && guildWarningAccepted;
+    }
+
     /** The consent notice is only worth showing to people who can actually use voice. */
     public Notice pendingNotice(boolean svcInstalled) {
         if (!enabled) return Notice.NONE;
         if (!hasConsent()) return svcInstalled ? Notice.CONSENT : Notice.NONE;
-        return needsEveryoneWarning() ? Notice.EVERYONE_WARNING : Notice.NONE;
+        if (needsEveryoneWarning()) return Notice.EVERYONE_WARNING;
+        return needsGuildWarning() ? Notice.GUILD_WARNING : Notice.NONE;
     }
 }

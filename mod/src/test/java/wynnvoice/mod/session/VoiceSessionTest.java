@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,7 +35,7 @@ class VoiceSessionTest {
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
-    private final List<Boolean> partyGroup = new ArrayList<>();
+    private final List<UUID> groups = new ArrayList<>();
     private Set<String> party = Set.of();
     private Set<String> friends = Set.of();
 
@@ -95,8 +96,8 @@ class VoiceSessionTest {
         }
 
         @Override
-        public void injectPartyGroup(boolean joined) {
-            partyGroup.add(joined);
+        public void injectGroup(UUID group) {
+            groups.add(group);
         }
     };
     private final VoiceSession session = new VoiceSession(VoiceTier.EVERYONE, effects);
@@ -322,24 +323,57 @@ class VoiceSessionTest {
         UUID pal = UUID.randomUUID();
         UUID stranger = UUID.randomUUID();
         session.onPacket(new Packet.Peers(List.of(new Peer(stranger, "S", false, Relation.NONE, true))));
-        assertTrue(partyGroup.isEmpty());
+        assertTrue(groups.isEmpty());
 
         session.onPacket(new Packet.Peers(List.of(
                 new Peer(pal, "P", false, Relation.PARTY, true),
                 new Peer(stranger, "S", false, Relation.NONE, true))));
         session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
-        assertEquals(List.of(true), partyGroup);
+        assertEquals(List.of(VoiceSession.PARTY_GROUP), groups);
         assertEquals(List.of(
                 new VoiceChatPayloads.State(pal, "P", false, false, VoiceSession.PARTY_GROUP),
                 new VoiceChatPayloads.State(stranger, "S", false, false, null)), injectedStates.get(1));
 
         session.onPacket(new Packet.Peers(List.of()));
-        assertEquals(List.of(true, false), partyGroup);
+        assertEquals(Arrays.asList(VoiceSession.PARTY_GROUP, null), groups);
 
         session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         session.onPacket(SECRET);
         session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
-        assertEquals(List.of(true, false, true, true), partyGroup, "a fresh SVC connection starts outside the group");
+        assertEquals(Arrays.asList(VoiceSession.PARTY_GROUP, null, VoiceSession.PARTY_GROUP, VoiceSession.PARTY_GROUP), groups, "a fresh SVC connection starts outside the group");
+    }
+
+    @Test
+    void guildChannelIsSentAndPlacesReachableGuildPeersInTheGuildGroupUnlessInAParty() {
+        session.setGuildChannel(true);
+        assertTrue(sent.isEmpty());
+        session.onAuthenticated("WC1", "");
+        session.onPacket(SECRET);
+        assertEquals(new Packet.Update(VoiceTier.EVERYONE, "", false, true, false), sent.get(sent.size() - 1), "guild channel is pushed once active");
+        sent.clear();
+
+        UUID mate = UUID.randomUUID();
+        UUID off = UUID.randomUUID();
+        UUID pal = UUID.randomUUID();
+        Peer matePeer = new Peer(mate, "M", false, Relation.GUILD, true);
+        Peer offPeer = new Peer(off, "O", false, Relation.GUILD, false);
+        session.onPacket(new Packet.Peers(List.of(matePeer, offPeer)));
+        assertEquals(List.of(VoiceSession.GUILD_GROUP), groups);
+        assertEquals(List.of(
+                new VoiceChatPayloads.State(mate, "M", false, false, VoiceSession.GUILD_GROUP),
+                new VoiceChatPayloads.State(off, "O", true, false, null)), injectedStates.get(0));
+
+        session.onPacket(new Packet.Peers(List.of(matePeer, new Peer(pal, "P", false, Relation.PARTY, true))));
+        assertEquals(List.of(VoiceSession.GUILD_GROUP, VoiceSession.PARTY_GROUP), groups, "party wins");
+        assertEquals(VoiceSession.GUILD_GROUP, injectedStates.get(1).get(0).group(), "guild mates still show in their group");
+
+        session.onPacket(new Packet.Peers(List.of(matePeer)));
+        session.setGuildChannel(false);
+        assertEquals(List.of(new Packet.Update(VoiceTier.EVERYONE, "", false, false, false)), sent);
+        assertEquals(Arrays.asList(VoiceSession.GUILD_GROUP, VoiceSession.PARTY_GROUP, VoiceSession.GUILD_GROUP, null), groups, "toggling off leaves the group without waiting for peers");
+        assertEquals(new VoiceChatPayloads.State(mate, "M", false, false, null), injectedStates.get(injectedStates.size() - 1).get(0));
+        session.setGuildChannel(false);
+        assertEquals(1, sent.size(), "unchanged toggle sends nothing");
     }
 }

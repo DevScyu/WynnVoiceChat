@@ -18,6 +18,7 @@ class VoiceSession(
     @Volatile var address: InetSocketAddress? = null
     @Volatile var connected = false
     @Volatile var disabled = false
+    @Volatile var guildChannel = false
     @Volatile var lastKeepAliveResponse = createdAt
     @Volatile var lastActivity = createdAt
     @Volatile var lastPeers: List<Peer>? = null
@@ -32,6 +33,6 @@ class VoiceSession(
 
     fun participant() = VoiceParticipant(
         player.uuid, player.name, player.world, instance, player.position, tier, disabled,
-        player.party, player.friends, player.guildMembers,
+        player.party, player.friends, player.guildMembers, player.guildId, guildChannel,
     )
 }

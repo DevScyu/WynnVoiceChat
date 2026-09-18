@@ -3,6 +3,7 @@ package wynnvoice.mod.command;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import java.util.Arrays;
@@ -38,6 +39,16 @@ public final class VoiceCommand {
                         .then(argument("reason", StringArgumentType.greedyString())
                                 .executes(context -> request(context, mod, new Packet.Report(
                                         StringArgumentType.getString(context, "player"), StringArgumentType.getString(context, "reason")))))))
+                .then(literal("guild")
+                        .then(literal("on").executes(context -> setGuildChannel(context, mod, true)))
+                        .then(literal("off").executes(context -> setGuildChannel(context, mod, false)))
+                        .then(literal("mute").then(argument("player", StringArgumentType.word())
+                                .executes(context -> request(context, mod, new Packet.GuildMute(StringArgumentType.getString(context, "player"), true, 0)))
+                                .then(argument("hours", IntegerArgumentType.integer(1))
+                                        .executes(context -> request(context, mod, new Packet.GuildMute(
+                                                StringArgumentType.getString(context, "player"), true, IntegerArgumentType.getInteger(context, "hours")))))))
+                        .then(literal("unmute").then(argument("player", StringArgumentType.word())
+                                .executes(context -> request(context, mod, new Packet.GuildMute(StringArgumentType.getString(context, "player"), false, 0))))))
                 .then(literal("who").executes(context -> who(context, mod)))
                 .then(literal("blocks").executes(context -> request(context, mod, new Packet.BlockList())))
                 .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
@@ -78,6 +89,12 @@ public final class VoiceCommand {
 
     private static int request(CommandContext<FabricClientCommandSource> context, VoiceMod mod, Packet packet) {
         if (!mod.request(packet)) context.getSource().sendError(Component.translatable("wynnvoice.command.notConnected"));
+        return 1;
+    }
+
+    private static int setGuildChannel(CommandContext<FabricClientCommandSource> context, VoiceMod mod, boolean on) {
+        mod.setGuildChannel(on);
+        context.getSource().sendFeedback(Component.translatable(on ? "wynnvoice.command.guildOn" : "wynnvoice.command.guildOff").withStyle(ChatFormatting.GREEN));
         return 1;
     }
 

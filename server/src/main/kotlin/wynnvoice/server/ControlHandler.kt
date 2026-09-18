@@ -58,11 +58,12 @@ class ControlHandler(
             is Packet.World -> onWorld(ctx, player, packet.world.ifEmpty { null })
             is Packet.Position -> player.position = packet
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
-            is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
+            is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled, packet.guildChannel)
             is Packet.Social -> player.apply(packet)
             is Packet.Block -> voice.block(player, packet.targetName, packet.blocked)
             is Packet.BlockList -> voice.blockList(player)
             is Packet.Report -> voice.report(player, packet.targetName, packet.reason)
+            is Packet.GuildMute -> voice.guildMute(player, packet.targetName, packet.muted, packet.hours)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
     }
@@ -121,7 +122,11 @@ class ControlHandler(
                     authResults.getValue(AuthStatus.OK).increment()
                     ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
                     voice.connected(verifiedPlayer)
-                    wynn.membersOf(auth.uuid).thenAccept { verifiedPlayer.guildMembers = it }
+                    wynn.guildOf(auth.uuid).thenAccept { guild ->
+                        verifiedPlayer.guildId = guild?.uuid
+                        verifiedPlayer.guildRank = guild?.members?.get(auth.username)
+                        verifiedPlayer.guildMembers = guild?.members?.keys ?: emptySet()
+                    }
                     onAuthenticated(this)
                 }
             }

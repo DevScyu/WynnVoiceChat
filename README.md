@@ -270,7 +270,9 @@ Minecraft directory, created on first launch:
   "tier": "PARTY",
   "consentVersion": 0,
   "everyoneWarningAccepted": false,
-  "blockAlsoIgnores": true
+  "blockAlsoIgnores": true,
+  "guildChannel": false,
+  "guildWarningAccepted": false
 }
 ```
 
@@ -289,6 +291,9 @@ them can hear you (nothing is printed when nobody is).
 | `/wynnvoice who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
 | `/wynnvoice blocks`                                       | List the players you have blocked                         |
 | `/wynnvoice tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
+| `/wynnvoice guild <on\|off>`                              | Hear and be heard by guild members anywhere (shows the guild channel notice once) |
+| `/wynnvoice guild mute <player> [hours]`                  | Guild owner and chiefs: silence a member in the guild channel, for good or for `hours` |
+| `/wynnvoice guild unmute <player>`                        | Lift a guild channel mute                                 |
 | `/wynnvoice block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
 | `/wynnvoice unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
 | `/wynnvoice report <player> [reason]`                     | Report someone you heard in the last two minutes          |
@@ -304,6 +309,13 @@ public API (cached ten minutes), so a client can never claim a guild it is not i
 `EVERYONE` shows the rules once; until you accept them (`everyoneWarningAccepted`) the relay is
 told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may additionally cap the
 audience at friends & guild (`VOICE_EVERYONE_ENABLED`).
+
+The guild channel (`guildChannel`) works like the party: every guild member who also turned it on
+hears you on any world, shown as a read-only "Guild" group in Simple Voice Chat, unless you are in
+a party, which takes precedence. Turning it on shows a notice once (`guildWarningAccepted`); until
+you accept it the relay is told the channel is off. Your guild's owner and chiefs, as reported by
+the Wynncraft API, can mute a member in the channel: a muted member still hears the channel and is
+still heard nearby, but not in the channel. Blocks win over all of this.
 
 Blocks are symmetric and permanent until lifted; the name is looked up among players on voice
 first, then on Mojang, so you can block someone who is offline. Once the relay confirms a block
