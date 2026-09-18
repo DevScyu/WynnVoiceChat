@@ -66,7 +66,7 @@ class ControlServer(
         }
         open.incrementAndGet()
         handshaking.incrementAndGet()
-        val handler = ControlHandler(sessions, wynn, voice, { handshaking.decrementAndGet() })
+        val handler = ControlHandler(sessions, wynn, voice) { handshaking.decrementAndGet() }
         ch.closeFuture().addListener {
             rateLimiter.release(ip)
             open.decrementAndGet()

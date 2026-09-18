@@ -40,56 +40,6 @@ class WynnApiTest {
     }
 
     @Test
-    fun `parses online status, server and the online status restriction`() {
-        val online = WynnApi.parsePlayer(playerJson("null", online = true, server = "WC12", restricted = true))
-        assertEquals(true, online.online)
-        assertEquals("WC12", online.server)
-        assertTrue(online.restricted)
-        val offline = WynnApi.parsePlayer(playerJson("null"))
-        assertEquals(false, offline.online)
-        assertNull(offline.server)
-        assertFalse(offline.restricted)
-        val bare = WynnApi.parsePlayer("""{"username":"Salted"}""")
-        assertNull(bare.online)
-        assertNull(bare.server)
-        assertFalse(bare.restricted)
-    }
-
-    private fun worldCheck(json: () -> String?): WynnApi.WorldCheck {
-        val uuid = UUID.randomUUID()
-        serve("/v3/player/$uuid" to json)
-        return resolver.worldCheck(uuid, "WC12").join()
-    }
-
-    @Test
-    fun `world check refuses only a clear contradiction`() {
-        val before = WynnApi.WorldCheck.entries.associateWith { sample("voice_world_checks_total{result=\"${it.name.lowercase()}\"}") }
-        assertEquals(WynnApi.WorldCheck.OK, worldCheck { playerJson("null", online = true, server = "WC12") })
-        assertEquals(WynnApi.WorldCheck.MISMATCH, worldCheck { playerJson("null", online = true, server = "WC3") })
-        assertEquals(WynnApi.WorldCheck.OFFLINE, worldCheck { playerJson("null") })
-        assertEquals(WynnApi.WorldCheck.RESTRICTED, worldCheck { playerJson("null", online = false, server = null, restricted = true) })
-        assertEquals(WynnApi.WorldCheck.UNKNOWN, worldCheck { playerJson("null", online = true, server = null) })
-        assertEquals(WynnApi.WorldCheck.UNKNOWN, worldCheck { null })
-        assertEquals(WynnApi.WorldCheck.UNKNOWN, worldCheck { throw IllegalStateException("api down") })
-        assertEquals(WynnApi.WorldCheck.UNKNOWN, worldCheck { "not json" })
-        assertEquals(listOf(false, true, true, false, false), WynnApi.WorldCheck.entries.map { it.refuses })
-        assertEquals(mapOf(WynnApi.WorldCheck.OK to 1.0, WynnApi.WorldCheck.MISMATCH to 1.0, WynnApi.WorldCheck.OFFLINE to 1.0, WynnApi.WorldCheck.RESTRICTED to 1.0, WynnApi.WorldCheck.UNKNOWN to 4.0),
-            before.mapValues { (result, n) -> sample("voice_world_checks_total{result=\"${result.name.lowercase()}\"}") - n })
-    }
-
-    @Test
-    fun `world check always refreshes the player response the guild lookup then reuses`() {
-        serve("/v3/player/$player" to { playerJson("""{"uuid":"18d19092-684b-427b-aa58-574230befe79"}""", online = true, server = "WC12") }, "/v3/guild/uuid/18d19092-684b-427b-aa58-574230befe79" to { guildJson })
-        assertEquals(WynnApi.WorldCheck.OK, resolver.worldCheck(player, "WC12").join())
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
-        assertEquals(2, requests.size, "guild lookup reuses the world check's player response")
-        assertEquals(WynnApi.WorldCheck.MISMATCH, resolver.worldCheck(player, "WC1").join())
-        assertEquals(3, requests.size, "a new world claim is never judged on a cached response")
-        assertEquals(setOf("Salted", "Eilaa", "Grian"), membersOf(player))
-        assertEquals(3, requests.size, "the guild lookup reuses the refreshed response")
-    }
-
-    @Test
     fun `resolves members through both endpoints and caches per guild`() {
         val hits = sample("voice_guild_lookups_total{result=\"hit\"}")
         val misses = sample("voice_guild_lookups_total{result=\"miss\"}")

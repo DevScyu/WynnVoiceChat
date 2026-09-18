@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory
 import java.security.SecureRandom
 import java.util.HexFormat
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import wynnvoicechat.protocol.AuthStatus
 import wynnvoicechat.protocol.Packet
 import wynnvoicechat.protocol.Protocol
@@ -23,7 +22,6 @@ class ControlHandler(
     private val wynn: WynnApi,
     private val voice: VoiceManager,
     private val onAuthenticated: (ControlHandler) -> Unit = {},
-    private val worldCheckDelayMs: Long = WORLD_CHECK_DELAY_MS,
 ) : SimpleChannelInboundHandler<Packet>() {
     private enum class Stage { HELLO, AUTH, VERIFYING, READY }
 
@@ -57,7 +55,7 @@ class ControlHandler(
 
     private fun onPacket(ctx: ChannelHandlerContext, player: Player, packet: Packet) {
         when (packet) {
-            is Packet.World -> onWorld(ctx, player, packet.world.ifEmpty { null })
+            is Packet.World -> player.world = packet.world.ifEmpty { null }
             is Packet.Position -> player.position = packet
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
             is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled, packet.guildChannel, packet.dnd)
@@ -69,22 +67,6 @@ class ControlHandler(
             is Packet.Call -> voice.call(player, packet.targetName, packet.action)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
-    }
-
-    /**
-     * The claim takes effect at once; Wynncraft's verdict lands on the event loop later and only counts while the
-     * claim stands. The API trails a world switch, so the check waits before asking.
-     */
-    private fun onWorld(ctx: ChannelHandlerContext, player: Player, world: String?) {
-        player.world = world
-        player.worldRefusal = null
-        if (world == null) return
-        ctx.executor().schedule({
-            if (player.world != world || !ctx.channel().isActive) return@schedule
-            wynn.worldCheck(player.uuid, world).thenAcceptAsync({ verdict ->
-                if (verdict.refuses && player.world == world) voice.worldMismatch(player, "Wynncraft does not show you on $world")
-            }, ctx.executor())
-        }, worldCheckDelayMs, TimeUnit.MILLISECONDS)
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
@@ -161,6 +143,5 @@ class ControlHandler(
         private val RANDOM = SecureRandom()
         private val USERNAME = Regex("[A-Za-z0-9_]{1,16}")
         private val MOD_VERSION = Regex("\\d+\\.\\d+\\.\\d+")
-        const val WORLD_CHECK_DELAY_MS = 60_000L
     }
 }

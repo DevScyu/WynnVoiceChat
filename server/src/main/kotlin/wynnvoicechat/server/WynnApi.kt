@@ -65,17 +65,12 @@ class HttpApiFetcher(
 }
 
 /**
- * Player and guild lookups on the Wynncraft public API: guild membership can never be forged by a client,
- * and a claimed world is spot-checked against the player's live status. Lookups and their failures are
- * cached for ten minutes; the player response is shared by both checks.
+ * Player and guild lookups on the Wynncraft public API: guild membership can never be forged by a client.
+ * Lookups and their failures are cached for ten minutes.
  */
 class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = System::currentTimeMillis) {
     enum class Lookup { HIT, MISS, NO_GUILD }
-    enum class WorldCheck {
-        OK, MISMATCH, OFFLINE, RESTRICTED, UNKNOWN;
-        val refuses get() = this == MISMATCH || this == OFFLINE
-    }
-    class PlayerInfo(val guild: UUID?, val online: Boolean?, val server: String?, val restricted: Boolean)
+    class PlayerInfo(val guild: UUID?)
     /** [members] maps player name to rank (`owner`, `chief`, `strategist`, `captain`, `recruiter`, `recruit`). */
     class Guild(val uuid: UUID, val prefix: String, val members: Map<String, String>)
 
@@ -96,22 +91,7 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
         }
     }
 
-    /** Whether Wynncraft agrees the player is on [world]; only a clear contradiction refuses. Always a fresh answer: a cached one predates the claim. */
-    fun worldCheck(player: UUID, world: String): CompletableFuture<WorldCheck> = playerOf(player, fresh = true).thenApply { info ->
-        when {
-            info == null -> WorldCheck.UNKNOWN
-            info.restricted -> WorldCheck.RESTRICTED
-            info.online == false -> WorldCheck.OFFLINE
-            info.server == null -> WorldCheck.UNKNOWN
-            info.server != world -> WorldCheck.MISMATCH
-            else -> WorldCheck.OK
-        }.also { worldChecks.getValue(it).increment() }
-    }
-
-    private fun playerOf(player: UUID, fresh: Boolean = false): CompletableFuture<PlayerInfo?> {
-        if (fresh) byPlayer.remove(player)
-        return cached(byPlayer, player, null) { fetch("/v3/player/$player").thenApply { it?.let(::parsePlayer) } }
-    }
+    private fun playerOf(player: UUID) = cached(byPlayer, player, null) { fetch("/v3/player/$player").thenApply { it?.let(::parsePlayer) } }
 
     private fun fetch(path: String) = api.get(URI(BASE_URL + path))
 
@@ -130,18 +110,12 @@ class WynnApi(private val api: ApiFetcher, private val clock: () -> Long = Syste
     companion object {
         private val log = LoggerFactory.getLogger(WynnApi::class.java)
         private val lookups = Metrics.registry.counters<Lookup>("voice_guild_lookups_total", "result")
-        private val worldChecks = Metrics.registry.counters<WorldCheck>("voice_world_checks_total", "result")
         const val CACHE_MS = 10 * 60_000L
         private const val BASE_URL = "https://api.wynncraft.com"
 
         fun parsePlayer(playerJson: String): PlayerInfo {
             val player = JsonParser.parseString(playerJson).asJsonObject
-            return PlayerInfo(
-                guild = player["guild"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("uuid")?.asString?.let(UUID::fromString),
-                online = player["online"]?.takeIf { it.isJsonPrimitive }?.asBoolean,
-                server = player["server"]?.takeIf { it.isJsonPrimitive }?.asString,
-                restricted = player["restrictions"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("onlineStatus")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
-            )
+            return PlayerInfo(player["guild"]?.takeIf { it.isJsonObject }?.asJsonObject?.get("uuid")?.asString?.let(UUID::fromString))
         }
 
         fun parsePrefix(guildJson: String): String =

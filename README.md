@@ -185,11 +185,6 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
 in SQLite and under `VOICE_REPORT_DIR` either way.
 
-The relay also spot-checks each client's claimed world against the Wynncraft public API (cached
-ten minutes per player, sharing the guild lookup's response) and ends voice with `WORLD_MISMATCH`
-when Wynncraft shows the player offline or on another world; players who hide their online status,
-unknown players and API failures are never refused.
-
 #### Reverse proxy for `/discord`
 
 Discord only calls HTTPS endpoints, and the relay speaks plain HTTP on `HTTP_PORT`, so put a

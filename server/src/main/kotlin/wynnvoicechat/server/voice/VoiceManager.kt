@@ -46,7 +46,7 @@ class FiledReport(
     val targetAudio: File?,
 )
 
-enum class SessionEnd { LEFT, TIMED_OUT, BANNED, REPLACED, UNSUPPORTED_SVC_VERSION, WORLD_MISMATCH }
+enum class SessionEnd { LEFT, TIMED_OUT, BANNED, REPLACED, UNSUPPORTED_SVC_VERSION }
 enum class UdpType { AUTHENTICATE, CONNECTION_CHECK, KEEP_ALIVE, PING, MIC, OTHER }
 enum class UdpDrop { IGNORED_IP, UNDECODABLE, NO_SESSION, DECRYPT_FAILED, UNKNOWN_PACKET, BAD_SECRET, WRONG_ADDRESS, NOT_CONNECTED, MIC_RATE_LIMITED }
 enum class DeliverySkip { DISABLED, NOT_CONNECTED, NO_SESSION }
@@ -181,11 +181,6 @@ class VoiceManager(
             player.send(Packet.Ended(EndReason.UNSUPPORTED_SVC_VERSION, "Update Simple Voice Chat to 2.6.x"))
             return
         }
-        player.worldRefusal?.let { message ->
-            sessionsEnded.getValue(SessionEnd.WORLD_MISMATCH).increment()
-            player.send(Packet.Ended(EndReason.WORLD_MISMATCH, message))
-            return
-        }
         val now = clock()
         val effectiveTier = clamp(tier)
         // ponytail: one SQLite insert per join on the TCP event loop, as the report path does; offload if joins pile up
@@ -227,15 +222,6 @@ class VoiceManager(
         for ((id, verdict) in moderation.pendingOutcomes(player.uuid)) {
             if (moderation.markNotified(id)) player.send(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was ${verdict.name.lowercase()}"))
         }
-    }
-
-    /** Wynncraft contradicted the player's world claim: end any live session and refuse joins until the claim changes. */
-    fun worldMismatch(player: Player, message: String) {
-        player.worldRefusal = message
-        val session = sessions[player.uuid]?.takeIf { it.player === player } ?: return
-        if (!sessions.remove(player.uuid, session)) return
-        end(session, SessionEnd.WORLD_MISMATCH, clock())
-        player.send(Packet.Ended(EndReason.WORLD_MISMATCH, message))
     }
 
     fun leave(player: Player) {
