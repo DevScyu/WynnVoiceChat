@@ -3,11 +3,15 @@ package wynnvoice.mod.session;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import wynnvoice.mod.svc.VoiceChatPayloads;
 import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
+import wynnvoice.protocol.Relation;
+import wynnvoice.protocol.SocialAction;
+import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
 
 /**
@@ -27,11 +31,20 @@ public final class VoiceSession {
 
         /** Real players on the level other than ourselves: uuid to display name. */
         Map<UUID, String> otherPlayers();
+
+        Set<String> party();
+
+        /** Put us in (or take us out of) the read-only SVC group that mirrors the Wynncraft party. */
+        void injectPartyGroup(boolean joined);
     }
+
+    public static final UUID PARTY_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000001");
 
     private final VoiceTier tier;
     private final Effects effects;
+    private boolean authenticated;
     private volatile boolean active;
+    private boolean inPartyGroup;
     private String instance = "";
     private String joinedInstance = "";
     private volatile boolean svcDisabled;
@@ -50,8 +63,15 @@ public final class VoiceSession {
 
     public void onAuthenticated(String world, String instance) {
         this.instance = instance;
+        authenticated = true;
         effects.send(new Packet.World(world));
+        Set<String> party = effects.party();
+        if (!party.isEmpty()) effects.send(new Packet.Social(SocialKind.PARTY, SocialAction.SET, List.copyOf(party)));
         join();
+    }
+
+    public void social(SocialKind kind, SocialAction action, List<String> names) {
+        if (authenticated) effects.send(new Packet.Social(kind, action, names));
     }
 
     private void join() {
@@ -64,12 +84,18 @@ public final class VoiceSession {
             case Packet.Secret secret -> {
                 active = true;
                 lastPosition = null;
+                inPartyGroup = false;
                 effects.injectSecret(secret);
                 if (svcDisabled || !instance.equals(joinedInstance)) pushUpdate();
             }
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Peers peers -> {
                 lastPeers = peers.peers();
+                boolean anyParty = lastPeers.stream().anyMatch(peer -> peer.relation() == Relation.PARTY);
+                if (anyParty != inPartyGroup) {
+                    inPartyGroup = anyParty;
+                    effects.injectPartyGroup(anyParty);
+                }
                 syncStates();
             }
             default -> {}
@@ -88,6 +114,7 @@ public final class VoiceSession {
     }
 
     public void onClosed() {
+        authenticated = false;
         active = false;
     }
 
@@ -124,7 +151,8 @@ public final class VoiceSession {
     public static List<VoiceChatPayloads.State> buildStates(List<Peer> peers, Map<UUID, String> others) {
         List<VoiceChatPayloads.State> states = new ArrayList<>(peers.size() + others.size());
         for (Peer peer : peers) {
-            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, null));
+            UUID group = peer.relation() == Relation.PARTY ? PARTY_GROUP : null;
+            states.add(new VoiceChatPayloads.State(peer.uuid(), peer.name(), peer.disabled() || !peer.reachable(), false, group));
         }
         for (Map.Entry<UUID, String> other : others.entrySet()) {
             UUID uuid = other.getKey();

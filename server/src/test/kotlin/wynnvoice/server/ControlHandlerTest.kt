@@ -14,6 +14,8 @@ import wynnvoice.protocol.EndReason
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
 import wynnvoice.protocol.Protocol
+import wynnvoice.protocol.SocialAction
+import wynnvoice.protocol.SocialKind
 import wynnvoice.protocol.VoiceTier
 import wynnvoice.server.voice.VoiceConfig
 import wynnvoice.server.voice.VoiceManager
@@ -190,5 +192,22 @@ class ControlHandlerTest {
         ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
         ch.close()
         assertNull(voice.sessionOf(uuid))
+    }
+
+    @Test
+    fun `social packets maintain the party and friend lists`() {
+        val ch = ready()
+        ch.writeInbound(Packet.Join(VoiceTier.EVERYONE, ""))
+        val player = voice.sessionOf(uuid)!!.player
+        ch.writeInbound(Packet.Social(SocialKind.PARTY, SocialAction.SET, listOf("A", "B")))
+        assertEquals(setOf("A", "B"), player.party)
+        ch.writeInbound(Packet.Social(SocialKind.PARTY, SocialAction.ADD, listOf("C")))
+        ch.writeInbound(Packet.Social(SocialKind.PARTY, SocialAction.REMOVE, listOf("A")))
+        assertEquals(setOf("B", "C"), player.party)
+        ch.writeInbound(Packet.Social(SocialKind.FRIENDS, SocialAction.ADD, listOf("F")))
+        assertEquals(setOf("F"), player.friends)
+        assertEquals(setOf("B", "C"), player.party)
+        ch.writeInbound(Packet.Social(SocialKind.PARTY, SocialAction.SET, emptyList()))
+        assertTrue(player.party.isEmpty())
     }
 }

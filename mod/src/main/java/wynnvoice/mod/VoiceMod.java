@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -12,11 +13,13 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,9 +28,11 @@ import wynnvoice.mod.net.VoiceClient;
 import wynnvoice.mod.session.VoiceSession;
 import wynnvoice.mod.svc.VoiceChatBridge;
 import wynnvoice.mod.svc.VoiceChatPayloads;
+import wynnvoice.mod.wynn.PartyTracker;
 import wynnvoice.mod.wynn.WorldTracker;
 import wynnvoice.protocol.AuthStatus;
 import wynnvoice.protocol.Packet;
+import wynnvoice.protocol.SocialKind;
 
 public final class VoiceMod implements ClientModInitializer {
     public static final String MOD_ID = "wynnvoice";
@@ -40,7 +45,9 @@ public final class VoiceMod implements ClientModInitializer {
     private VoiceClient client;
     private VoiceSession session;
     private String connectedWorld;
+    private String lastWorld;
     private final WorldTracker worldTracker = new WorldTracker();
+    private PartyTracker party;
     private volatile boolean onWynncraft;
     private boolean refused;
     private boolean warnedSvcVersion;
@@ -62,10 +69,15 @@ public final class VoiceMod implements ClientModInitializer {
             onWynncraft = server != null && isWynncraft(server.ip);
             refused = false;
             warnedSvcVersion = false;
+            party = new PartyTracker(minecraft.getUser().getName(), () -> sendCommand("party list"),
+                    (action, names) -> {
+                        if (session != null) session.social(SocialKind.PARTY, action, names);
+                    });
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, minecraft) -> {
             onWynncraft = false;
             setWorld(null);
+            party = null;
         });
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
@@ -95,6 +107,12 @@ public final class VoiceMod implements ClientModInitializer {
         if (!worldTracker.update(tabListDisplayName)) return;
         WorldTracker.State state = worldTracker.state();
         LOG.info("World state: {}", state);
+        boolean enteredWorld = state.onWorld() && !state.world().equals(lastWorld);
+        lastWorld = state.onWorld() ? state.world() : null;
+        if (party != null) {
+            if (enteredWorld) party.requestList();
+            else if (!state.onWorld()) party.reset();
+        }
         if (!state.onWorld()) {
             refused = false;
             disconnect();
@@ -179,6 +197,18 @@ public final class VoiceMod implements ClientModInitializer {
         Minecraft.getInstance().gui.getChat().addMessage(Component.literal("[WynnVoice] " + message).withStyle(colour));
     }
 
+    private static void sendCommand(String command) {
+        ClientPacketListener connection = Minecraft.getInstance().getConnection();
+        if (connection != null) connection.sendCommand(command);
+    }
+
+    /** Party bookkeeping from Wynncraft's chat; true hides the line (our own {@code /party list} response). */
+    public static boolean interceptSystemChat(Component message) {
+        VoiceMod mod = instance;
+        if (mod == null || !mod.onWynncraft || mod.party == null) return false;
+        return mod.party.onChat(message.getString(), PartyTracker.realName(message));
+    }
+
     /** Wynncraft has no Simple Voice Chat server; its plugin messages are answered here and never sent. */
     public static boolean interceptServerbound(ServerboundCustomPayloadPacket packet) {
         VoiceMod mod = instance;
@@ -190,14 +220,19 @@ public final class VoiceMod implements ClientModInitializer {
     }
 
     private void onSvcPayload(VoiceChatBridge.Intercepted intercepted) {
+        Identifier channel = intercepted.channel();
+        if (channel.equals(VoiceChatPayloads.CREATE_GROUP) || channel.equals(VoiceChatPayloads.SET_GROUP) || channel.equals(VoiceChatPayloads.LEAVE_GROUP)) {
+            chat("Voice groups follow your Wynncraft party. Use /party instead.", ChatFormatting.YELLOW);
+            return;
+        }
         if (!intercepted.data().isReadable()) return;
-        if (intercepted.channel().equals(VoiceChatPayloads.REQUEST_SECRET)) {
+        if (channel.equals(VoiceChatPayloads.REQUEST_SECRET)) {
             int version = VoiceChatPayloads.readRequestSecretVersion(intercepted.data());
             if (version != VoiceClient.SVC_COMPAT_VERSION && !warnedSvcVersion) {
                 warnedSvcVersion = true;
                 chat("Your Simple Voice Chat version is not supported, please update it", ChatFormatting.RED);
             }
-        } else if (intercepted.channel().equals(VoiceChatPayloads.UPDATE_STATE)) {
+        } else if (channel.equals(VoiceChatPayloads.UPDATE_STATE)) {
             svcDisabled = VoiceChatPayloads.readUpdateStateDisabled(intercepted.data());
             if (session != null) session.setSvcDisabled(svcDisabled);
         }
@@ -235,6 +270,18 @@ public final class VoiceMod implements ClientModInitializer {
                 if (other != minecraft.player) others.put(other.getUUID(), other.getScoreboardName());
             }
             return others;
+        }
+
+        @Override
+        public Set<String> party() {
+            PartyTracker party = instance.party;
+            return party == null ? Set.of() : party.members();
+        }
+
+        @Override
+        public void injectPartyGroup(boolean joined) {
+            if (joined) VoiceChatBridge.inject(VoiceChatPayloads.ADD_GROUP, buf -> VoiceChatPayloads.writeAddGroup(buf, VoiceSession.PARTY_GROUP, "Party"));
+            VoiceChatBridge.inject(VoiceChatPayloads.JOINED_GROUP, buf -> VoiceChatPayloads.writeJoinedGroup(buf, joined ? VoiceSession.PARTY_GROUP : null));
         }
     }
 }

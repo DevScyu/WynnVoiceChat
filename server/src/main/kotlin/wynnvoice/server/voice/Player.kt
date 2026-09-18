@@ -3,6 +3,8 @@ package wynnvoice.server.voice
 import java.util.UUID
 import wynnvoice.protocol.Packet
 import wynnvoice.protocol.Packet.Position
+import wynnvoice.protocol.SocialAction
+import wynnvoice.protocol.SocialKind
 
 /**
  * One authenticated control connection's game state, written by the TCP handler and read by routing.
@@ -13,4 +15,20 @@ class Player(val uuid: UUID, val name: String, val send: (Packet) -> Unit) {
     @Volatile var party: Set<String> = emptySet()
     @Volatile var friends: Set<String> = emptySet()
     @Volatile var guildMembers: Set<String> = emptySet()
+
+    fun apply(social: Packet.Social) {
+        val current = when (social.kind) {
+            SocialKind.PARTY -> party
+            SocialKind.FRIENDS -> friends
+        }
+        val next = when (social.action) {
+            SocialAction.SET -> social.names.toSet()
+            SocialAction.ADD -> current + social.names
+            SocialAction.REMOVE -> current - social.names.toSet()
+        }
+        when (social.kind) {
+            SocialKind.PARTY -> party = next
+            SocialKind.FRIENDS -> friends = next
+        }
+    }
 }

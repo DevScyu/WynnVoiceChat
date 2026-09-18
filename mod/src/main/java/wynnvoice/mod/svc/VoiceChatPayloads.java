@@ -16,13 +16,19 @@ public final class VoiceChatPayloads {
     // Server -> client (the mod synthesizes these)
     public static final Identifier SECRET = id("secret");
     public static final Identifier STATES = id("states");
+    public static final Identifier ADD_GROUP = id("add_group");
+    public static final Identifier JOINED_GROUP = id("joined_group");
 
     // Client -> server (the mod intercepts these)
     public static final Identifier REQUEST_SECRET = id("request_secret");
     public static final Identifier UPDATE_STATE = id("update_state");
+    public static final Identifier CREATE_GROUP = id("create_group");
+    public static final Identifier SET_GROUP = id("set_group");
+    public static final Identifier LEAVE_GROUP = id("leave_group");
 
     private static final byte CODEC_VOIP = 0;
     private static final int MTU = 1275;
+    private static final short GROUP_TYPE_NORMAL = 0;
 
     private VoiceChatPayloads() {}
 
@@ -59,6 +65,21 @@ public final class VoiceChatPayloads {
             buf.writeBoolean(state.group() != null);
             if (state.group() != null) buf.writeUUID(state.group());
         }
+    }
+
+    public static void writeAddGroup(FriendlyByteBuf buf, UUID id, String name) {
+        buf.writeUUID(id);
+        buf.writeUtf(name, 512);
+        buf.writeBoolean(false); // hasPassword
+        buf.writeBoolean(false); // persistent
+        buf.writeBoolean(false); // hidden
+        buf.writeShort(GROUP_TYPE_NORMAL);
+    }
+
+    public static void writeJoinedGroup(FriendlyByteBuf buf, @Nullable UUID group) {
+        buf.writeBoolean(group != null);
+        if (group != null) buf.writeUUID(group);
+        buf.writeBoolean(false); // wrongPassword
     }
 
     public static int readRequestSecretVersion(FriendlyByteBuf buf) {

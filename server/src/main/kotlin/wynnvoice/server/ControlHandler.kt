@@ -48,6 +48,7 @@ class ControlHandler(
             is Packet.Position -> player.position = packet
             is Packet.Join -> voice.join(player, svcCompatVersion, packet.tier, packet.instance)
             is Packet.Update -> voice.update(player, packet.tier, packet.instance, packet.svcDisabled)
+            is Packet.Social -> player.apply(packet)
             else -> log.debug("Unhandled packet from {}: {}", player.name, packet)
         }
     }

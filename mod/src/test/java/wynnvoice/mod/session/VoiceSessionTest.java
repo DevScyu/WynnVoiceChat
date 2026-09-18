@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import wynnvoice.mod.svc.VoiceChatPayloads;
@@ -15,6 +17,8 @@ import wynnvoice.protocol.EndReason;
 import wynnvoice.protocol.Packet;
 import wynnvoice.protocol.Peer;
 import wynnvoice.protocol.Relation;
+import wynnvoice.protocol.SocialAction;
+import wynnvoice.protocol.SocialKind;
 import wynnvoice.protocol.VoiceTier;
 
 class VoiceSessionTest {
@@ -25,8 +29,10 @@ class VoiceSessionTest {
     private final List<Packet.Secret> injectedSecrets = new ArrayList<>();
     private final List<List<VoiceChatPayloads.State>> injectedStates = new ArrayList<>();
     private final Map<UUID, String> others = new LinkedHashMap<>();
+    private final List<Boolean> partyGroup = new ArrayList<>();
+    private Set<String> party = Set.of();
 
-    private final VoiceSession session = new VoiceSession(VoiceTier.EVERYONE, new VoiceSession.Effects() {
+    private final VoiceSession.Effects effects = new VoiceSession.Effects() {
         @Override
         public void send(Packet packet) {
             sent.add(packet);
@@ -51,7 +57,18 @@ class VoiceSessionTest {
         public Map<UUID, String> otherPlayers() {
             return others;
         }
-    });
+
+        @Override
+        public Set<String> party() {
+            return party;
+        }
+
+        @Override
+        public void injectPartyGroup(boolean joined) {
+            partyGroup.add(joined);
+        }
+    };
+    private final VoiceSession session = new VoiceSession(VoiceTier.EVERYONE, effects);
 
     private void joined() {
         session.onAuthenticated("WC1", "");
@@ -160,5 +177,55 @@ class VoiceSessionTest {
         assertFalse(session.isActive());
         session.updatePosition(1, 1, 1);
         assertTrue(sent.isEmpty());
+    }
+
+    @Test
+    void partyIsSentAfterAuthAndChangesOnlyWhileAuthenticated() {
+        session.social(SocialKind.PARTY, SocialAction.ADD, List.of("Early"));
+        session.onAuthenticated("WC1", "");
+        assertEquals(List.of(new Packet.World("WC1"), new Packet.Join(VoiceTier.EVERYONE, "")), sent, "empty party is not sent");
+
+        party = new LinkedHashSet<>(List.of("Me", "Pal"));
+        VoiceSession next = new VoiceSession(VoiceTier.PARTY, effects);
+        sent.clear();
+        next.onAuthenticated("WC1", "");
+        next.social(SocialKind.PARTY, SocialAction.REMOVE, List.of("Pal"));
+        assertEquals(List.of(
+                new Packet.World("WC1"),
+                new Packet.Social(SocialKind.PARTY, SocialAction.SET, List.of("Me", "Pal")),
+                new Packet.Join(VoiceTier.PARTY, ""),
+                new Packet.Social(SocialKind.PARTY, SocialAction.REMOVE, List.of("Pal"))), sent);
+
+        next.onClosed();
+        sent.clear();
+        next.social(SocialKind.PARTY, SocialAction.ADD, List.of("Late"));
+        assertTrue(sent.isEmpty());
+    }
+
+    @Test
+    void partyPeersJoinTheReadOnlyGroupAndLeaveItWhenGone() {
+        joined();
+        UUID pal = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        session.onPacket(new Packet.Peers(List.of(new Peer(stranger, "S", false, Relation.NONE, true))));
+        assertTrue(partyGroup.isEmpty());
+
+        session.onPacket(new Packet.Peers(List.of(
+                new Peer(pal, "P", false, Relation.PARTY, true),
+                new Peer(stranger, "S", false, Relation.NONE, true))));
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+        assertEquals(List.of(true), partyGroup);
+        assertEquals(List.of(
+                new VoiceChatPayloads.State(pal, "P", false, false, VoiceSession.PARTY_GROUP),
+                new VoiceChatPayloads.State(stranger, "S", false, false, null)), injectedStates.get(1));
+
+        session.onPacket(new Packet.Peers(List.of()));
+        assertEquals(List.of(true, false), partyGroup);
+
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        session.onPacket(new Packet.Peers(List.of(new Peer(pal, "P", false, Relation.PARTY, true))));
+        assertEquals(List.of(true, false, true, true), partyGroup, "a fresh SVC connection starts outside the group");
     }
 }

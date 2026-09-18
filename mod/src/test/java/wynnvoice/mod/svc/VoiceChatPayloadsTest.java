@@ -85,4 +85,31 @@ class VoiceChatPayloadsTest {
         state.writeBoolean(true);
         assertTrue(VoiceChatPayloads.readUpdateStateDisabled(state));
     }
+
+    @Test
+    void groupLayouts() {
+        UUID group = UUID.randomUUID();
+        FriendlyByteBuf add = buffer();
+        VoiceChatPayloads.writeAddGroup(add, group, "Party");
+        assertEquals(group, add.readUUID());
+        assertEquals("Party", add.readUtf(512));
+        assertFalse(add.readBoolean(), "hasPassword");
+        assertFalse(add.readBoolean(), "persistent");
+        assertFalse(add.readBoolean(), "hidden");
+        assertEquals(0, add.readShort(), "type NORMAL");
+        assertEquals(0, add.readableBytes());
+
+        FriendlyByteBuf joined = buffer();
+        VoiceChatPayloads.writeJoinedGroup(joined, group);
+        assertTrue(joined.readBoolean());
+        assertEquals(group, joined.readUUID());
+        assertFalse(joined.readBoolean(), "wrongPassword");
+        assertEquals(0, joined.readableBytes());
+
+        FriendlyByteBuf left = buffer();
+        VoiceChatPayloads.writeJoinedGroup(left, null);
+        assertFalse(left.readBoolean());
+        assertFalse(left.readBoolean(), "wrongPassword");
+        assertEquals(0, left.readableBytes());
+    }
 }
