@@ -5,3 +5,4 @@ run/
 *.iml
 .DS_Store
 *.db
+logs/
