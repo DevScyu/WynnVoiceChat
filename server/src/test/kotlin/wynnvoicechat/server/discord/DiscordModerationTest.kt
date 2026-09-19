@@ -57,7 +57,7 @@ class DiscordModerationTest {
     private val requests = ArrayList<Request>()
     private val discord = DiscordModeration(config, voice, { method, path, contentType, body ->
         requests.add(Request(method, path, contentType, body))
-        CompletableFuture.completedFuture("{}")
+        CompletableFuture.completedFuture(if (path.endsWith("/threads")) """{"id":"777"}""" else "{}")
     }) { now }
     private val sent = HashMap<UUID, ArrayList<Packet>>()
 
@@ -160,6 +160,24 @@ class DiscordModerationTest {
         assertEquals(dismissRefused + 1, sample("voice_discord_interactions_total{kind=\"dismiss_button\",outcome=\"unauthorized\"}"))
         assertEquals(bansRefused + 2, sample("voice_discord_interactions_total{kind=\"cmd_bans\",outcome=\"unauthorized\"}"))
         assertEquals(pings + 1, sample("voice_discord_interactions_total{kind=\"ping\",outcome=\"ok\"}"))
+    }
+
+    @Test
+    fun `the appeal button needs no role and opens a private thread for the clicker`() {
+        val ok = sample("voice_discord_interactions_total{kind=\"appeal_button\",outcome=\"ok\"}")
+        val response = handle("""{"type":3,"channel_id":"appeals",${member()},"data":{"custom_id":"appeal","component_type":2}}""")
+        assertEphemeral(response)
+        assertTrue(content(response).contains("<#777>"), content(response))
+
+        val thread = requests.single { it.method == "POST" && it.path == "/channels/appeals/threads" }
+        val body = JsonParser.parseString(String(thread.body)).asJsonObject
+        assertEquals(12, body["type"].asInt, "private thread")
+        assertFalse(body["invitable"].asBoolean)
+        assertTrue(body["name"].asString.contains("modbob"))
+        assertEquals(1, requests.count { it.method == "PUT" && it.path == "/channels/777/thread-members/42" })
+        val first = requests.single { it.method == "POST" && it.path == "/channels/777/messages" }
+        assertTrue(JsonParser.parseString(String(first.body)).asJsonObject["content"].asString.startsWith("<@42>"))
+        assertEquals(ok + 1, sample("voice_discord_interactions_total{kind=\"appeal_button\",outcome=\"ok\"}"))
     }
 
     // --- buttons ---

@@ -87,7 +87,7 @@ class DiscordModeration(
 
     private class Moderator(val id: String, val name: String)
 
-    enum class Kind { PING, BAN_BUTTON, BAN_MODAL, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, CMD_HISTORY, UNKNOWN }
+    enum class Kind { PING, APPEAL_BUTTON, BAN_BUTTON, BAN_MODAL, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, CMD_HISTORY, UNKNOWN }
     enum class Outcome { OK, BAD_SIGNATURE, UNAUTHORIZED, ERROR }
     enum class BanAction { BAN, UNBAN, DISMISS }
 
@@ -124,6 +124,7 @@ class DiscordModeration(
         private const val UPDATE_MESSAGE = 7
         private const val MODAL = 9
         private const val STRING_SELECT = 3
+        private const val PRIVATE_THREAD = 12
         private const val LABEL = 18
         private const val EPHEMERAL = 64
         private const val ACTION_ROW = 1
@@ -202,6 +203,7 @@ class DiscordModeration(
         return when (interaction["type"].asInt) {
             PING -> Kind.PING
             MESSAGE_COMPONENT -> when (data?.get("custom_id")?.asString?.substringBefore(':')) {
+                "appeal" -> Kind.APPEAL_BUTTON
                 "ban" -> Kind.BAN_BUTTON
                 "dismiss" -> Kind.DISMISS_BUTTON
                 else -> Kind.UNKNOWN
@@ -223,6 +225,8 @@ class DiscordModeration(
         val type = interaction["type"].asInt
         if (type == PING) return counted(kind, Outcome.OK, mapOf("type" to PONG))
         val member = interaction.getAsJsonObject("member") ?: return counted(kind, Outcome.UNAUTHORIZED, ephemeral("Use this in the server."))
+        // The one thing a banned player may do here: open their own appeal thread
+        if (kind == Kind.APPEAL_BUTTON) return counted(kind, Outcome.OK, appeal(interaction["channel_id"].asString, member.getAsJsonObject("user")))
         val roles = member.getAsJsonArray("roles")?.map { it.asString } ?: emptyList()
         if (config.modRoleId !in roles) {
             logger.info("Discord interaction {} refused: user {} lacks the moderator role", kind, member.getAsJsonObject("user")?.get("id")?.asString)
@@ -255,6 +259,23 @@ class DiscordModeration(
         voice.reportHandled(reportId)
         logger.info("Report #{} {} by {}", reportId, outcome.lowercase(), moderator.name)
         return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "$outcome by <@${moderator.id}>", "components" to emptyList<Any>()))
+    }
+
+    /** A private thread in the appeals channel with only the clicker in it, plus the first message telling them what to write. */
+    private fun appeal(channelId: String, user: JsonObject): Map<String, Any?> {
+        val userId = user["id"].asString
+        val name = user["global_name"]?.takeIf { it.isJsonPrimitive }?.asString ?: user["username"].asString
+        // ponytail: three sequential REST calls inside Discord's 3 s budget, like resolving(); defer if it ever times out
+        val thread = gson.fromJson(rest.send("POST", "/channels/$channelId/threads", "application/json", gson.toJson(mapOf(
+            "name" to "Appeal — $name".take(100), "type" to PRIVATE_THREAD, "invitable" to false, "auto_archive_duration" to 10080,
+        )).toByteArray()).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS), JsonObject::class.java)["id"].asString
+        rest.send("PUT", "/channels/$thread/thread-members/$userId", "application/json", ByteArray(0)).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        rest.send("POST", "/channels/$thread/messages", "application/json", gson.toJson(mapOf(
+            "content" to "<@$userId>, only you and the moderators can see this thread. Please tell us:\n- which Minecraft account was banned\n- roughly when\n- why you think the decision was wrong\n\nA moderator who did not make the original decision will answer here, normally within a week.",
+            "allowed_mentions" to mapOf("users" to listOf(userId)),
+        )).toByteArray())
+        logger.info("Appeal thread {} opened", thread)
+        return ephemeral("Your appeal thread is open: <#$thread>")
     }
 
     /** The ban buttons open this; the ban itself happens in [banModalSubmitted]. */
