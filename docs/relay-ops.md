@@ -6,6 +6,7 @@ The relay is a single self-contained jar (JRE 21 or newer):
 
 ```sh
 VOICE_ENABLED=true VOICE_HOST=voice.example.com \
+  CONTROL_TLS_CERT=relay.pem CONTROL_TLS_KEY=relay-key.pem \
   java -jar server/build/libs/wynnvoicechat-relay-<version>-all.jar
 ```
 
@@ -46,6 +47,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | Variable                            | Default   | Meaning                                            |
 |-------------------------------------|-----------|----------------------------------------------------|
 | `CONTROL_HOST` / `CONTROL_PORT`     | `0.0.0.0` / `9100` | TCP control channel the mod connects to    |
+| `CONTROL_TLS_CERT` / `CONTROL_TLS_KEY` | required | PEM certificate and PKCS#8 key terminating TLS on the control channel (see below) |
 | `RATE_LIMIT_MAX_CONCURRENT_PER_IP`  | `5`       | Open connections allowed per IP                     |
 | `RATE_LIMIT_MAX_PER_MINUTE_PER_IP`  | `15`      | New connections per minute per IP                   |
 | `RATE_LIMIT_MAX_HANDSHAKING`        | `500`     | Unauthenticated connections allowed at once         |
@@ -71,6 +73,23 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 
 Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
 in SQLite and under `VOICE_REPORT_DIR` either way.
+
+#### The control channel certificate
+
+The control channel carries every player's UDP audio key, so the relay refuses to start without
+a certificate. There is no CA: the mod bundles the relay's own certificate (`mod/src/main/resources/relay.pem`)
+and trusts nothing else, so the certificate can be self-signed and long-lived:
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -days 3650 -nodes \
+  -subj "/CN=relay.example.com" -addext "subjectAltName=DNS:relay.example.com" \
+  -keyout relay-key.pem -out relay.pem
+```
+
+Keep `relay-key.pem` with the other secrets (and a copy in a password manager: losing it means
+every installed mod is locked out until an update ships). Rotating the key is a mod release —
+ship the new `relay.pem` in the mod first, then switch the relay. For a local relay during
+development, start the mod with `-Dwynnvoicechat.relay=127.0.0.1:9100 -Dwynnvoicechat.relayCert=/path/to/relay.pem`.
 
 #### Reverse proxy for `/discord`
 

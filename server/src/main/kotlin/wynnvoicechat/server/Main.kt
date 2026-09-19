@@ -1,5 +1,7 @@
 package wynnvoicechat.server
 
+import io.netty.handler.ssl.SslContextBuilder
+import java.io.File
 import org.slf4j.LoggerFactory
 import wynnvoicechat.server.discord.DiscordConfig
 import wynnvoicechat.server.discord.DiscordModeration
@@ -10,6 +12,7 @@ import wynnvoicechat.server.voice.VoiceModeration
 import wynnvoicechat.server.voice.VoiceUdpServer
 
 private fun env(name: String, default: String): String = System.getenv(name)?.takeIf { it.isNotBlank() } ?: default
+private fun requiredFile(name: String): File = File(env(name, "")).also { require(it.isFile) { "$name must point at a PEM file (${it.path})" } }
 
 fun main() {
     val log = LoggerFactory.getLogger("wynnvoicechat")
@@ -23,6 +26,7 @@ fun main() {
     voice = VoiceManager(voiceConfig, moderation, udp, api)
     val discord = DiscordConfig.fromEnv()?.let { DiscordModeration(it, voice, HttpDiscordRest(it.botToken)) }
     val server = ControlServer(
+        ssl = SslContextBuilder.forServer(requiredFile("CONTROL_TLS_CERT"), requiredFile("CONTROL_TLS_KEY")).build(),
         host = env("CONTROL_HOST", "0.0.0.0"),
         port = env("CONTROL_PORT", "9100").toInt(),
         sessions = MojangSessionFetcher(),

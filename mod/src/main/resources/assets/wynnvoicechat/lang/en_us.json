@@ -2,7 +2,7 @@
   "wynnvoicechat.chat": "[WynnVoiceChat] %s",
   "wynnvoicechat.unavailable": "Voice chat unavailable: %s",
   "wynnvoicechat.unavailable.versionMismatch": "your mod version is not supported by the relay, please update",
-  "wynnvoicechat.unavailable.banned": "you are banned from voice chat",
+  "wynnvoicechat.unavailable.banned": "you are banned from voice chat; appeal in #ban-appeals on discord.gg/QPCwpuA2b",
   "wynnvoicechat.unavailable.disabled": "the relay is currently disabled",
   "wynnvoicechat.unavailable.notAllowed": "you are not on the relay's allowlist",
   "wynnvoicechat.unavailable.badSession": "Mojang did not confirm your session",

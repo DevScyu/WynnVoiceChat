@@ -10,6 +10,13 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -40,6 +47,13 @@ public final class VoiceClient {
         void onClosed();
     }
 
+    /**
+     * The relay's own self-signed certificate is the only one trusted: no CA, no hostname check, nothing else can
+     * terminate this connection. A new relay key ships as a new relay.pem in the mod. -Dwynnvoicechat.relayCert=path
+     * swaps it for a local relay's certificate, alongside -Dwynnvoicechat.relay.
+     */
+    private static final SslContext SSL = pinnedContext(System.getProperty("wynnvoicechat.relayCert"));
+
     private final MultiThreadIoEventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
     private final Identity identity;
     private final SessionJoiner joiner;
@@ -60,6 +74,7 @@ public final class VoiceClient {
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        ch.pipeline().addLast(SSL.newHandler(ch.alloc()));
                         VoicePipeline.install(ch.pipeline());
                         ch.pipeline().addLast(new Handler(identity, joiner, ForkJoinPool.commonPool(), listener));
                     }
@@ -72,6 +87,14 @@ public final class VoiceClient {
                     }
                 })
                 .channel();
+    }
+
+    static SslContext pinnedContext(String certOverride) {
+        try (InputStream pem = certOverride != null ? Files.newInputStream(Path.of(certOverride)) : VoiceClient.class.getResourceAsStream("/relay.pem")) {
+            return SslContextBuilder.forClient().trustManager(pem).endpointIdentificationAlgorithm(null).build();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     public void send(Packet packet) {

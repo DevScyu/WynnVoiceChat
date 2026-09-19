@@ -8,6 +8,9 @@ import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioSocketChannel
+import io.netty.handler.ssl.SslContext
+import io.netty.handler.ssl.SslContextBuilder
+import java.io.File
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -29,13 +32,33 @@ class ControlServerTest {
     private val uuid = UUID.randomUUID()
     private val voice = VoiceManager(VoiceConfig(true, true, "voice.test", 24454, "127.0.0.1", 32.0, 1000, "build/tmp/reports", 1_000_000),
         testModeration("control-server-test"), { _, _ -> }, { CompletableFuture.completedFuture(null) })
-    private val server = ControlServer("127.0.0.1", 0, { _, _ -> CompletableFuture.completedFuture(uuid) },
-        WynnApi({ CompletableFuture.completedFuture(null) }), voice,
-        ConnectionRateLimiter(maxConcurrentPerIp = 2, maxPerMinutePerIp = 100))
+    private val server = server(ssl = null)
     private val clientGroup = MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
 
-    init {
-        server.start()
+    private fun server(ssl: SslContext?) = ControlServer("127.0.0.1", 0, { _, _ -> CompletableFuture.completedFuture(uuid) },
+        WynnApi({ CompletableFuture.completedFuture(null) }), voice,
+        ConnectionRateLimiter(maxConcurrentPerIp = 2, maxPerMinutePerIp = 100), ssl = ssl).also { it.start() }
+
+    /** The throwaway pair under src/test/resources/tls; never the production cert. */
+    private val testCert = File("src/test/resources/tls/test.pem")
+    private val testKey = File("src/test/resources/tls/test-key.pem")
+
+    private fun connect(port: Int, ssl: SslContext? = null): Pair<io.netty.channel.Channel, LinkedBlockingQueue<Packet>> {
+        val received = LinkedBlockingQueue<Packet>()
+        val channel = Bootstrap().group(clientGroup).channel(NioSocketChannel::class.java)
+            .handler(object : ChannelInitializer<SocketChannel>() {
+                override fun initChannel(ch: SocketChannel) {
+                    ssl?.let { ch.pipeline().addLast(it.newHandler(ch.alloc())) }
+                    VoicePipeline.install(ch.pipeline())
+                    ch.pipeline().addLast(object : SimpleChannelInboundHandler<Packet>() {
+                        override fun channelRead0(ctx: ChannelHandlerContext, packet: Packet) {
+                            received.add(packet)
+                        }
+                    })
+                }
+            })
+            .connect("127.0.0.1", port).sync().channel()
+        return channel to received
     }
 
     private fun sample(series: String) = MetricsTest.sample(Metrics.scrape(), series)!!.toDouble()
@@ -60,19 +83,7 @@ class ControlServerTest {
         val challenges = sample("voice_control_packets_total{direction=\"out\",type=\"AuthChallenge\"}")
         val bytesIn = sample("voice_control_bytes_total{direction=\"in\"}")
 
-        val received = LinkedBlockingQueue<Packet>()
-        val channel = Bootstrap().group(clientGroup).channel(NioSocketChannel::class.java)
-            .handler(object : ChannelInitializer<SocketChannel>() {
-                override fun initChannel(ch: SocketChannel) {
-                    VoicePipeline.install(ch.pipeline())
-                    ch.pipeline().addLast(object : SimpleChannelInboundHandler<Packet>() {
-                        override fun channelRead0(ctx: ChannelHandlerContext, packet: Packet) {
-                            received.add(packet)
-                        }
-                    })
-                }
-            })
-            .connect("127.0.0.1", server.boundPort).sync().channel()
+        val (channel, received) = connect(server.boundPort)
 
         channel.writeAndFlush(Packet.Hello(Protocol.VERSION, 20, "1.0.0"))
         val challenge = received.poll(5, TimeUnit.SECONDS) as Packet.AuthChallenge
@@ -92,6 +103,24 @@ class ControlServerTest {
         assertTrue(sample("voice_control_bytes_total{direction=\"in\"}") > bytesIn)
         assertEquals(0.0, sample("voice_control_connections{state=\"authenticated\"}"))
         assertTrue(Metrics.scrape().contains("netty_eventexecutor_tasks_pending{name=\"control-worker-"), "netty binder on the worker group")
+    }
+
+    @Test
+    fun `with a certificate the handshake runs over tls and a client that trusts only that certificate gets through`() {
+        val tls = server(SslContextBuilder.forServer(testCert, testKey).build())
+        try {
+            val (trusting, received) = connect(tls.boundPort, SslContextBuilder.forClient().trustManager(testCert).endpointIdentificationAlgorithm(null).build())
+            trusting.writeAndFlush(Packet.Hello(Protocol.VERSION, 20, "1.0.0"))
+            assertTrue(received.poll(5, TimeUnit.SECONDS) is Packet.AuthChallenge)
+            trusting.close().sync()
+
+            val (plain, nothing) = connect(tls.boundPort)
+            plain.writeAndFlush(Packet.Hello(Protocol.VERSION, 20, "1.0.0"))
+            assertEquals(null, nothing.poll(500, TimeUnit.MILLISECONDS), "plaintext against a tls relay gets nothing back")
+            plain.close().sync()
+        } finally {
+            tls.stop()
+        }
     }
 
     @Test

@@ -135,6 +135,7 @@ class VoiceManager(
     companion object {
         const val REPORT_WINDOW_MS = 120_000L
         const val LOOKUPS_PER_MINUTE = 10
+        private const val APPEAL = "; appeal in #ban-appeals on discord.gg/QPCwpuA2b"
         private const val MAX_REASON_LENGTH = 500
         private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
         private const val SESSION_PROFILE_URL = "https://sessionserver.mojang.com/session/minecraft/profile/"
@@ -683,7 +684,7 @@ class VoiceManager(
     }
 
     private fun refuseBanned(player: Player, ban: Ban) =
-        player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
+        player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty() + APPEAL))
 
     fun maintain() {
         val now = clock()

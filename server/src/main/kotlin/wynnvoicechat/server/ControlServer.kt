@@ -14,6 +14,7 @@ import io.netty.channel.MultiThreadIoEventLoopGroup
 import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
+import io.netty.handler.ssl.SslContext
 import io.netty.handler.timeout.ReadTimeoutHandler
 import io.netty.util.concurrent.DefaultThreadFactory
 import org.slf4j.LoggerFactory
@@ -35,6 +36,8 @@ class ControlServer(
     private val voice: VoiceManager,
     private val rateLimiter: ConnectionRateLimiter = ConnectionRateLimiter(),
     private val handshakeTimeoutSeconds: Int = 10,
+    /** Null only in tests: production always terminates TLS here, as the Secret for every UDP stream crosses this socket. */
+    private val ssl: SslContext? = null,
 ) {
     private val bossGroup = MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
     private val workerGroup = MultiThreadIoEventLoopGroup(0, DefaultThreadFactory("control-worker"), NioIoHandler.newFactory())
@@ -75,6 +78,7 @@ class ControlServer(
             if (!handler.authenticated) handshaking.decrementAndGet()
             closed.getValue(if (stopping) CloseReason.SERVER_SHUTDOWN else handler.closeReason).increment()
         }
+        ssl?.let { ch.pipeline().addLast(it.newHandler(ch.alloc())) }
         ch.pipeline().addLast(ReadTimeoutHandler(handshakeTimeoutSeconds))
         ch.pipeline().addLast(ControlMetrics)
         VoicePipeline.install(ch.pipeline())
