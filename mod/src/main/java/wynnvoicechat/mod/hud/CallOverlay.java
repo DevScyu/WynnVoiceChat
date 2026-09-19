@@ -56,9 +56,10 @@ public final class CallOverlay implements HudElement {
     private final Minecraft minecraft = Minecraft.getInstance();
     private final CallHud hud;
     private final BooleanSupplier enabled;
+    // Y is the one letter neither vanilla, Wynntils nor Simple Voice Chat binds; N would also disable SVC and H hide its icons
     private final KeyMapping accept = key("accept", GLFW.GLFW_KEY_Y);
-    private final KeyMapping decline = key("decline", GLFW.GLFW_KEY_N);
-    private final KeyMapping hangUp = key("hangup", GLFW.GLFW_KEY_H);
+    private final KeyMapping decline = key("decline", GLFW.GLFW_KEY_UNKNOWN);
+    private final KeyMapping hangUp = key("hangup", GLFW.GLFW_KEY_UNKNOWN);
     // ponytail: a failed Mojang lookup sticks for the session (Steve/Alex shows instead); evict on failure if that ever grates
     private final Map<UUID, CompletableFuture<Optional<PlayerSkin>>> skins = new HashMap<>();
 
@@ -92,8 +93,8 @@ public final class CallOverlay implements HudElement {
         String peer = hud.peer();
         switch (state) {
             case INCOMING -> panel(graphics, font, peer);
-            case RINGING -> pill(graphics, font, face(), Component.translatable("wynnvoicechat.call.ringing", peer), hangUp);
-            case ACTIVE -> pill(graphics, font, face(), Component.literal(peer + "  " + clock(hud.durationMs(now))), hangUp);
+            case RINGING -> pill(graphics, font, face(), Component.translatable("wynnvoicechat.call.ringing", peer), bound(hangUp));
+            case ACTIVE -> pill(graphics, font, face(), Component.literal(peer + "  " + clock(hud.durationMs(now))), bound(hangUp));
             default -> pill(graphics, font, Icon.sprite(HANGUP), Component.translatable(lineKey(state), peer), null);
         }
     }
@@ -108,23 +109,36 @@ public final class CallOverlay implements HudElement {
         return String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60);
     }
 
+    /** Null when the key is unbound, so no badge is drawn for it; the chat buttons and commands still work. */
+    private static KeyMapping bound(KeyMapping key) {
+        return key.isUnbound() ? null : key;
+    }
+
     private void panel(GuiGraphics graphics, Font font, String peer) {
         Component title = Component.translatable("wynnvoicechat.call.incoming", peer);
         Component acceptLabel = Component.translatable("wynnvoicechat.hud.accept");
         Component declineLabel = Component.translatable("wynnvoicechat.hud.decline");
         int textX = PANEL_INSET + ICON + PAD;
-        int hints = badgeWidth(font, accept) + 2 + font.width(acceptLabel) + PAD * 2 + badgeWidth(font, decline) + 2 + font.width(declineLabel);
+        int hints = hintWidth(font, bound(accept), acceptLabel) + hintWidth(font, bound(decline), declineLabel);
         int width = Math.max(PANEL_WIDTH, textX + Math.max(font.width(title), hints) + PAD);
         int x = graphics.guiWidth() - MARGIN - width;
         graphics.blitSprite(RenderPipelines.GUI_TEXTURED, PANEL, x, TOP, width, PANEL_HEIGHT);
         face().draw(graphics, x + PANEL_INSET, TOP + (PANEL_HEIGHT - ICON) / 2);
         graphics.drawString(font, title, x + textX, TOP + 7, TITLE, false);
-        int hintX = x + textX;
-        hintX = badge(graphics, font, accept, hintX, TOP + 18) + 2;
-        graphics.drawString(font, acceptLabel, hintX, TOP + 19, TEXT, false);
-        hintX += font.width(acceptLabel) + PAD * 2;
-        hintX = badge(graphics, font, decline, hintX, TOP + 18) + 2;
-        graphics.drawString(font, declineLabel, hintX, TOP + 19, TEXT, false);
+        int hintX = hint(graphics, font, bound(accept), acceptLabel, x + textX);
+        hint(graphics, font, bound(decline), declineLabel, hintX);
+    }
+
+    private static int hintWidth(Font font, KeyMapping key, Component label) {
+        return key == null ? 0 : badgeWidth(font, key) + 2 + font.width(label) + PAD * 2;
+    }
+
+    /** "[key] label" at x for a bound key, nothing for an unbound one; returns the x just past it. */
+    private static int hint(GuiGraphics graphics, Font font, KeyMapping key, Component label, int x) {
+        if (key == null) return x;
+        int labelX = badge(graphics, font, key, x, TOP + 18) + 2;
+        graphics.drawString(font, label, labelX, TOP + 19, TEXT, false);
+        return labelX + font.width(label) + PAD * 2;
     }
 
     private void pill(GuiGraphics graphics, Font font, Icon icon, Component text, KeyMapping key) {
