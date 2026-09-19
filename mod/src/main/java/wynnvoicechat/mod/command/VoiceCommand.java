@@ -9,6 +9,8 @@ import com.mojang.brigadier.context.CommandContext;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Stream;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.ChatFormatting;
@@ -25,6 +27,22 @@ import wynnvoicechat.protocol.VoiceTier;
 public final class VoiceCommand {
     private VoiceCommand() {}
 
+    /** People currently on voice around you: the only valid targets for a report or a call. */
+    private static SuggestionProvider<FabricClientCommandSource> onVoice(VoiceMod mod) {
+        return (context, builder) -> SharedSuggestionProvider.suggest(peerNames(mod), builder);
+    }
+
+    /** On voice first, then everyone in the tab list. */
+    private static SuggestionProvider<FabricClientCommandSource> anyPlayer(VoiceMod mod) {
+        return (context, builder) -> SharedSuggestionProvider.suggest(
+                Stream.concat(peerNames(mod), context.getSource().getOnlinePlayerNames().stream()).distinct(), builder);
+    }
+
+    private static Stream<String> peerNames(VoiceMod mod) {
+        List<Peer> peers = mod.roster();
+        return peers == null ? Stream.empty() : peers.stream().map(Peer::name);
+    }
+
     public static void register(VoiceMod mod) {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             var root = dispatcher.register(literal(VoiceMod.MOD_ID)
@@ -32,11 +50,11 @@ public final class VoiceCommand {
                             .suggests((context, builder) -> SharedSuggestionProvider.suggest(
                                     Arrays.stream(VoiceTier.values()).map(tier -> tier.name().toLowerCase(Locale.ROOT)), builder))
                             .executes(context -> setTier(context, mod))))
-                    .then(literal("block").then(argument("player", StringArgumentType.word())
+                    .then(literal("block").then(argument("player", StringArgumentType.word()).suggests(anyPlayer(mod))
                             .executes(context -> request(context, mod, new Packet.Block(StringArgumentType.getString(context, "player"), true)))))
-                    .then(literal("unblock").then(argument("player", StringArgumentType.word())
+                    .then(literal("unblock").then(argument("player", StringArgumentType.word()).suggests(anyPlayer(mod))
                             .executes(context -> request(context, mod, new Packet.Block(StringArgumentType.getString(context, "player"), false)))))
-                    .then(literal("report").then(argument("player", StringArgumentType.word())
+                    .then(literal("report").then(argument("player", StringArgumentType.word()).suggests(onVoice(mod))
                             .executes(context -> request(context, mod, new Packet.Report(StringArgumentType.getString(context, "player"), "")))
                             .then(argument("reason", StringArgumentType.greedyString())
                                     .executes(context -> request(context, mod, new Packet.Report(
@@ -44,14 +62,14 @@ public final class VoiceCommand {
                     .then(literal("guild")
                             .then(literal("on").executes(context -> setGuildChannel(context, mod, true)))
                             .then(literal("off").executes(context -> setGuildChannel(context, mod, false)))
-                            .then(literal("mute").then(argument("player", StringArgumentType.word())
+                            .then(literal("mute").then(argument("player", StringArgumentType.word()).suggests(anyPlayer(mod))
                                     .executes(context -> request(context, mod, new Packet.GuildMute(StringArgumentType.getString(context, "player"), true, 0)))
                                     .then(argument("hours", IntegerArgumentType.integer(1))
                                             .executes(context -> request(context, mod, new Packet.GuildMute(
                                                     StringArgumentType.getString(context, "player"), true, IntegerArgumentType.getInteger(context, "hours")))))))
-                            .then(literal("unmute").then(argument("player", StringArgumentType.word())
+                            .then(literal("unmute").then(argument("player", StringArgumentType.word()).suggests(anyPlayer(mod))
                                     .executes(context -> request(context, mod, new Packet.GuildMute(StringArgumentType.getString(context, "player"), false, 0))))))
-                    .then(literal("call").then(argument("player", StringArgumentType.word())
+                    .then(literal("call").then(argument("player", StringArgumentType.word()).suggests(onVoice(mod))
                             .executes(context -> request(context, mod, new Packet.Call(StringArgumentType.getString(context, "player"), CallAction.INVITE)))))
                     .then(literal("accept").executes(context -> request(context, mod, new Packet.Call("", CallAction.ACCEPT))))
                     .then(literal("decline").executes(context -> request(context, mod, new Packet.Call("", CallAction.DECLINE))))
