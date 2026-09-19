@@ -65,7 +65,7 @@ tolerating the mod is that reports come to us and the process is clear to player
 
 ## Appeals
 
-Appeals arrive as **private threads in `#ban-appeals`**; only the appellant and moderators see them.
+Appeals arrive as **private threads in `#ban-appeals`**, opened by the *Start an appeal* button on the pinned message (the relay creates the thread and adds the player); only the appellant and moderators see them.
 Rules:
 
 - A moderator who **did not** make the original decision reviews it, listening to the clip again.
