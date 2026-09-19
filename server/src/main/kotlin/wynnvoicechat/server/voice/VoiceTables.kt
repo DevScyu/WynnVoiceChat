@@ -54,6 +54,8 @@ object VoiceReportsTable : IntIdTable("voice_reports") {
     val handledAt = long("handled_at").nullable()
     val outcome = text("outcome").nullable() // Verdict name
     val notifiedAt = long("notified_at").nullable()
+    /** The Discord message the report was posted as; its thread shares the id. Null when Discord is off or the post failed. */
+    val discordMessageId = text("discord_message_id").nullable()
 }
 
 /** One row per voice session; the only place identity meets analytics (Grafana's SQLite datasource). */

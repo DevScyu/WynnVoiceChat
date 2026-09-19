@@ -110,7 +110,7 @@ class DiscordModeration(
         }
     }
     enum class BanSource { BUTTON, COMMAND }
-    enum class Operation { POST_REPORT, REGISTER_COMMANDS, MOD_LOG }
+    enum class Operation { POST_REPORT, REPORT_THREAD, REGISTER_COMMANDS, MOD_LOG }
     enum class RequestOutcome { OK, ERROR }
 
     companion object {
@@ -128,7 +128,7 @@ class DiscordModeration(
         private const val MODAL = 9
         private const val STRING_SELECT = 3
         private const val PRIVATE_THREAD = 12
-        private const val APPEAL_ARCHIVE_MINUTES = 10080
+        private const val THREAD_ARCHIVE_MINUTES = 10080
         private const val LABEL = 18
         private const val EPHEMERAL = 64
         private const val ACTION_ROW = 1
@@ -262,7 +262,9 @@ class DiscordModeration(
         moderation.markHandled(reportId, moderator.name, verdict)
         voice.reportHandled(reportId)
         logger.info("Report #{} {} by {}", reportId, outcome.lowercase(), moderator.name)
-        return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "$outcome by <@${moderator.id}>", "components" to emptyList<Any>()))
+        val line = "$outcome by <@${moderator.id}>"
+        closeThread(reportId, line)
+        return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to line, "components" to emptyList<Any>()))
     }
 
     /** A private thread in the appeals channel with only the clicker in it, plus the first message telling them what to write. */
@@ -273,7 +275,7 @@ class DiscordModeration(
         val name = user["global_name"]?.takeIf { it.isJsonPrimitive }?.asString ?: user["username"].asString
         // ponytail: three sequential REST calls inside Discord's 3 s budget, like resolving(); defer if it ever times out
         val thread = gson.fromJson(rest.send("POST", "/channels/$channelId/threads", "application/json", gson.toJson(mapOf(
-            "name" to "Appeal — $name".take(100), "type" to PRIVATE_THREAD, "invitable" to false, "auto_archive_duration" to APPEAL_ARCHIVE_MINUTES,
+            "name" to "Appeal — $name".take(100), "type" to PRIVATE_THREAD, "invitable" to false, "auto_archive_duration" to THREAD_ARCHIVE_MINUTES,
         )).toByteArray()).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS), JsonObject::class.java)["id"].asString
         rest.send("PUT", "/channels/$thread/thread-members/$userId", "application/json", ByteArray(0)).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         // Mentioning the role is what pulls the moderators into a private thread
@@ -281,7 +283,7 @@ class DiscordModeration(
             "content" to "<@$userId>, only you and the moderators (<@&${config.modRoleId}>) can see this thread. Please tell us:\n- which Minecraft account was banned\n- roughly when\n- why you think the decision was wrong\n\nA moderator who did not make the original decision will answer here, normally within a week.",
             "allowed_mentions" to mapOf("users" to listOf(userId), "roles" to listOf(config.modRoleId)),
         )).toByteArray())
-        appealThreads[userId] = thread to now + APPEAL_ARCHIVE_MINUTES * 60_000L
+        appealThreads[userId] = thread to now + THREAD_ARCHIVE_MINUTES * 60_000L
         logger.info("Appeal thread {} opened", thread)
         return ephemeral("Your appeal thread is open: <#$thread>")
     }
@@ -313,7 +315,9 @@ class DiscordModeration(
         moderation.markHandled(reportId, moderator.name, Verdict.ACTIONED)
         voice.reportHandled(reportId)
         logger.info("Report #{} banned {} by {}", reportId, duration(days), moderator.name)
-        return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}", "components" to emptyList<Any>()))
+        val line = "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}"
+        closeThread(reportId, line)
+        return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to line, "components" to emptyList<Any>()))
     }
 
     /** First selected value of the modal's select menu [customId]; tolerates Label (`component`) and Action Row (`components`) wrappers. */
@@ -336,6 +340,7 @@ class DiscordModeration(
                 val actioned = moderation.openReportsAgainst(uuid).onEach { reportId ->
                     moderation.markHandled(reportId, moderator.name, Verdict.ACTIONED)
                     voice.reportHandled(reportId)
+                    closeThread(reportId, "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}")
                 }
                 ephemeral("Banned $player ${duration(days)}." + if (actioned.isEmpty()) "" else " Actioned ${actioned.size} open report(s): ${actioned.joinToString { "#$it" }}.")
             }
@@ -380,6 +385,19 @@ class DiscordModeration(
         val lifted = moderation.unban(target, moderator.name) > 0
         if (lifted) modLog("<@${moderator.id}> unbanned ${nameOf(target)}")
         return lifted
+    }
+
+    /** The report's thread gets the outcome as its last line, then is archived and locked; nothing to do for a report that never reached Discord. */
+    private fun closeThread(reportId: Int, line: String) {
+        val thread = moderation.messageOf(reportId) ?: return
+        rest.send("POST", "/channels/$thread/messages", "application/json", gson.toJson(mapOf("content" to line, "allowed_mentions" to mapOf("parse" to emptyList<String>()))).toByteArray())
+            .thenCompose { rest.send("PATCH", "/channels/$thread", "application/json", gson.toJson(mapOf("archived" to true, "locked" to true)).toByteArray()) }
+            .whenComplete { _, error -> threadOutcome(error, "Closing thread for report #$reportId") }
+    }
+
+    private fun threadOutcome(error: Throwable?, what: String) {
+        requests.getValue(Operation.REPORT_THREAD).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
+        if (error != null) logger.warn("{} failed: {}", what, error.message)
     }
 
     /** One line per ban/unban to the mod-log channel, when configured; failures only count, moderation already happened. */
@@ -452,6 +470,15 @@ class DiscordModeration(
                 requests.getValue(Operation.POST_REPORT).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
                 if (error != null) logger.warn("Posting report #{} to Discord failed: {}", report.id, error.message)
             }
+            .thenCompose { posted -> openThread(report, JsonParser.parseString(posted).asJsonObject["id"].asString).thenApply { posted } }
+    }
+
+    /** A thread on the report message, same id as the message, where moderators discuss it until it is actioned. */
+    private fun openThread(report: FiledReport, messageId: String): CompletableFuture<String> {
+        moderation.attachMessage(report.id, messageId)
+        return rest.send("POST", "/channels/${config.reportChannelId}/messages/$messageId/threads", "application/json",
+            gson.toJson(mapOf("name" to "Report #${report.id}: ${report.targetName}", "auto_archive_duration" to THREAD_ARCHIVE_MINUTES)).toByteArray())
+            .whenComplete { _, error -> threadOutcome(error, "Opening thread for report #${report.id}") }
     }
 
     private fun registerCommands() {

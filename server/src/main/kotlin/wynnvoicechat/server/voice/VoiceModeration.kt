@@ -50,7 +50,7 @@ class GuildMute(val guildId: UUID, val expiresAt: Long?)
 
 enum class DbOp {
     INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, BAN_HISTORY, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
-    ATTACH_AUDIO, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS, PRUNE_BANS, PRUNE_REPORTS, REPORTS_WITH_CLIPS,
+    ATTACH_AUDIO, ATTACH_MESSAGE, MESSAGE_OF, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS, PRUNE_BANS, PRUNE_REPORTS, REPORTS_WITH_CLIPS,
 }
 
 /**
@@ -258,6 +258,14 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
                 it[targetAudioPath] = targetPath
             }
         }
+    }
+
+    fun attachMessage(reportId: Int, messageId: String) {
+        db(DbOp.ATTACH_MESSAGE) { VoiceReportsTable.update({ VoiceReportsTable.id eq reportId }) { it[discordMessageId] = messageId } }
+    }
+
+    fun messageOf(reportId: Int): String? = db(DbOp.MESSAGE_OF) {
+        VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq reportId }.singleOrNull()?.get(VoiceReportsTable.discordMessageId)
     }
 
     fun recordSession(uuid: UUID, name: String, startedAt: Long, tier: VoiceTier, world: String?): Int = db(DbOp.RECORD_SESSION) {

@@ -57,7 +57,11 @@ class DiscordModerationTest {
     private val requests = ArrayList<Request>()
     private val discord = DiscordModeration(config, voice, { method, path, contentType, body ->
         requests.add(Request(method, path, contentType, body))
-        CompletableFuture.completedFuture(if (path.endsWith("/threads")) """{"id":"777"}""" else "{}")
+        CompletableFuture.completedFuture(when {
+            path.endsWith("/threads") -> """{"id":"777"}"""
+            path == "/channels/report-channel/messages" -> """{"id":"msg-1"}"""
+            else -> "{}"
+        })
     }) { now }
     private val sent = HashMap<UUID, ArrayList<Packet>>()
 
@@ -244,6 +248,39 @@ class DiscordModerationTest {
         assertEphemeral(handle(button("nonsense")))
     }
 
+    private fun closing(threadId: String): Pair<String?, JsonObject?> {
+        val line = requests.lastOrNull { it.method == "POST" && it.path == "/channels/$threadId/messages" }?.let { JsonParser.parseString(String(it.body)).asJsonObject["content"].asString }
+        val patch = requests.lastOrNull { it.method == "PATCH" && it.path == "/channels/$threadId" }?.let { JsonParser.parseString(String(it.body)).asJsonObject }
+        return line to patch
+    }
+
+    @Test
+    fun `actioning a report closes its thread with the outcome`() {
+        val reporter = player("Alice")
+        val bob = onVoice("Bob")
+        val id = filedReport(reporter, bob)
+        discord.postReport(FiledReport(id, "Alice", "Bob", NewReport(reporter.uuid, bob.uuid, "", "", "", null, null, emptyList(), null, null), null, null)).join()
+
+        handle(button("dismiss:$id"))
+        val (line, patch) = closing("msg-1")
+        assertEquals("Dismissed by <@42>", line)
+        assertTrue(patch!!["archived"].asBoolean && patch["locked"].asBoolean, "archived and locked so it stays a record")
+
+        val carol = onVoice("Carol")
+        profiles["Carol"] = carol.uuid
+        val second = filedReport(reporter, carol)
+        discord.postReport(FiledReport(second, "Alice", "Carol", NewReport(reporter.uuid, carol.uuid, "", "", "", null, null, emptyList(), null, null), null, null)).join()
+        handle(slash("ban", "player" to "Carol", "days" to 7, "reason" to "hate"))
+        val (slashLine, slashPatch) = closing("msg-1")
+        assertEquals("Banned for 7 days by <@42> — Hate speech", slashLine, "a slash ban closes the threads of the reports it actions")
+        assertTrue(slashPatch!!["archived"].asBoolean)
+
+        val unposted = filedReport(reporter, player("Dave"))
+        val before = requests.size
+        handle(banModal("ban:0:$unposted", "hate"))
+        assertTrue(requests.drop(before).none { it.method == "PATCH" }, "a report that never reached Discord has no thread to close")
+    }
+
     @Test
     fun `an online reporter hears the outcome at once`() {
         val reporter = onVoice("Alice")
@@ -363,9 +400,11 @@ class DiscordModerationTest {
 
         discord.postReport(FiledReport(7, "Alice", "Bob", report, reporter, target)).join()
 
-        val request = requests.single()
+        val request = requests.first()
         assertEquals("POST", request.method)
         assertEquals("/channels/report-channel/messages", request.path)
+        val thread = requests.single { it.path == "/channels/report-channel/messages/msg-1/threads" }
+        assertEquals("Report #7: Bob", JsonParser.parseString(String(thread.body)).asJsonObject["name"].asString, "a thread on the report keeps the discussion together")
         val boundary = request.contentType.removePrefix("multipart/form-data; boundary=")
         val body = String(request.body, Charsets.ISO_8859_1)
         val parts = body.split("--$boundary").filter { it.isNotBlank() && it != "--\r\n" }
