@@ -2,7 +2,7 @@
 
 Body text for the Modrinth project page. Fields outside the body: project type *mod*, loader *Fabric*, game version *1.21.11*, environment *client only*, license *LGPL-3.0-only*, categories *social* and *utility*, source and issues links to the GitHub repository, Discord link from the README contact section, website https://wynnvoicechat.com.
 
-Icon: `docs/brand/icon-512.png`. Gallery images from `../docs/assets/modrinth/` (banner featured); their CDN URLs are baked into the body below. Summary field: *Voice chat for Wynncraft parties, guilds and friends.* Slug: `wynnvoicechat`.
+Icon: `.github/brand/icon-512.png`. Gallery images from `../docs/assets/modrinth/` (banner featured); their CDN URLs are baked into the body below. Summary field: *Voice chat for Wynncraft parties, guilds and friends.* Slug: `wynnvoicechat`.
 
 ---
 

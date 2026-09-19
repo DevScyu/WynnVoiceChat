@@ -10,9 +10,9 @@
 
 <br />
 <div align="center">
-  <img src="docs/brand/icon-512.png" alt="" width="128" height="128">
+  <img src=".github/brand/icon-512.png" alt="" width="128" height="128">
   <br />
-  <img src="docs/brand/wordmark.png" alt="WynnVoiceChat" width="316" height="64">
+  <img src=".github/brand/wordmark.png" alt="WynnVoiceChat" width="316" height="64">
 
   <p align="center">
     Voice chat for Wynncraft parties, guilds and friends.
@@ -29,21 +29,8 @@
 <details>
   <summary>Table of Contents</summary>
   <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#about-the-project">About The Project</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
@@ -70,17 +57,7 @@ the same Wynncraft world.
 
 WynnVoiceChat does not replace Simple Voice Chat; you install both.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-### Built With
-
-* [![Fabric][fabric-badge]][fabric-url]
-* [![Simple Voice Chat][svc-badge]][svc-url]
-* [![Java][java-badge]][java-url]
-* [![Kotlin][kotlin-badge]][kotlin-url]
-* [![Netty][netty-badge]][netty-url]
+Built with [![Fabric][fabric-badge]][fabric-url] [![Simple Voice Chat][svc-badge]][svc-url] [![Java][java-badge]][java-url] [![Kotlin][kotlin-badge]][kotlin-url] [![Netty][netty-badge]][netty-url]
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -88,39 +65,18 @@ WynnVoiceChat does not replace Simple Voice Chat; you install both.
 
 ## Getting Started
 
-The repository is one Gradle build with three modules:
-
-| Module      | Language | What                                                                      |
-|-------------|----------|---------------------------------------------------------------------------|
-| `protocol/` | Java 21  | Packets and framing shared by mod and relay (Netty `ByteBuf` only)        |
-| `server/`   | Kotlin   | The relay: TCP control channel, Mojang session auth, audio relay, moderation |
-| `mod/`      | Java 21  | The Fabric 1.21.11 client mod                                             |
-
-### Prerequisites
-
-To play:
-
-* Minecraft 1.21.11 with Fabric Loader 0.18.4 or newer
-* [Fabric API][fabric-api-url]
-* [Simple Voice Chat][svc-url] 2.6 or newer
-
-To build:
-
-* JDK 21 (a newer JDK works as long as Gradle can find a JDK 21 toolchain)
-
-### Installation
-
-Three mods go into your `mods` folder:
+Three mods go into your `mods` folder, on Minecraft 1.21.11 with Fabric Loader 0.18.4 or newer:
 
 1. [Fabric API][fabric-api-url]
-2. [Simple Voice Chat][svc-url]
+2. [Simple Voice Chat][svc-url] 2.6 or newer
 3. The WynnVoiceChat jar from [Modrinth][modrinth-url] or the
    [releases page](https://github.com/DevScyu/WynnVoiceChat/releases)
 
-The mod connects to the WynnVoiceChat relay; there is nothing to configure. Join Wynncraft and
-accept the consent notice.
+There is nothing to configure. Join Wynncraft, accept the consent notice, and you are on voice
+with your party. `/wvc` lists every command; the terms, community rules and privacy notice are
+at [wynnvoicechat.com](https://wynnvoicechat.com).
 
-To build the mod yourself instead:
+To build it yourself (JDK 21 toolchain; Gradle itself needs JDK 25 for Fabric Loom):
 
 ```sh
 git clone https://github.com/DevScyu/WynnVoiceChat.git
@@ -128,142 +84,9 @@ cd WynnVoiceChat
 ./gradlew build
 ```
 
-The mod is `mod/build/libs/mod-<version>.jar` (the protocol classes are nested inside it), the
-relay is `server/build/libs/wynnvoicechat-relay-<version>-all.jar`.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-## Usage
-
-The mod only activates on `wynncraft.com`. It reads `config/wynnvoicechat.json` from your
-Minecraft directory, created on first launch:
-
-```json
-{
-  "enabled": true,
-  "tier": "PARTY",
-  "consentVersion": 0,
-  "everyoneWarningAccepted": false,
-  "blockAlsoIgnores": true,
-  "guildChannel": false,
-  "guildWarningAccepted": false,
-  "dnd": false,
-  "sounds": true,
-  "hud": true
-}
-```
-
-Nothing happens until you accept the consent notice, which appears on your first world join
-when Simple Voice Chat is installed. Accepting stores the relay's terms version in
-`consentVersion`; "Not now" (or closing the notice) sets `enabled` to `false`. When the relay later
-announces a newer `TERMS_VERSION`, the notice comes back with "The terms have changed" and voice
-stays off until you accept it again. Every change made in game is written to the file immediately.
-
-Joining a world connects to the relay and authenticates through Mojang. If the relay refuses
-the connection you get one chat line explaining why; leaving the world closes the connection.
-Once connected, one grey line says how many players are on voice on your world and how many of
-them can hear you (nothing is printed when nobody is).
-Simple Voice Chat's nameplate icon over a voice user is tinted by relation (green party, blue
-friend, gold guild, white stranger) and crossed out in red when you cannot hear each other.
-
-| Command                                                   | Effect                                                    |
-|-----------------------------------------------------------|-----------------------------------------------------------|
-| `/wvc …`                                                 | Alias for every `/wynnvoicechat` command below                |
-| `/wynnvoicechat who`                                          | List voice users on your world by party, friends, guild and others, marking who is muted or cannot hear you |
-| `/wynnvoicechat blocks`                                       | List the players you have blocked                         |
-| `/wynnvoicechat tier <party\|friends_and_guild\|everyone>`    | Set the audience; takes effect at once, also mid-session  |
-| `/wynnvoicechat guild <on\|off>`                              | Hear and be heard by guild members anywhere (shows the guild channel notice once) |
-| `/wynnvoicechat guild mute <player> [hours]`                  | Guild owner and chiefs: silence a member in the guild channel, for good or for `hours` |
-| `/wynnvoicechat guild unmute <player>`                        | Lift a guild channel mute                                 |
-| `/wynnvoicechat call <player>`                                | Call a mutual friend who is on voice; they get a chat line with accept and decline buttons and an on-screen panel |
-| `/wynnvoicechat accept` / `decline`                           | Answer an incoming call (or press `Y` / `N`)              |
-| `/wynnvoicechat hangup`                                       | End the call, or withdraw one that is still ringing (or press `H`) |
-| `/wynnvoicechat dnd <on\|off>`                                | Do not disturb: refuse incoming calls; shown in `/wynnvoicechat who` |
-| `/wynnvoicechat sounds <on\|off>`                             | Ring, call and presence sounds (see Sounds below)          |
-| `/wynnvoicechat hud <on\|off>`                                | The on-screen call panel and pill (see Calls below)       |
-| `/wynnvoicechat block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
-| `/wynnvoicechat unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
-| `/wynnvoicechat report <player> [reason]`                     | Report someone you heard in the last two minutes          |
-| `/wynnvoicechat terms` / `privacy`                            | Open the terms of use or the privacy notice in your browser |
-| `/wynnvoicechat enable`                                       | Turn voice on (shows the consent notice if still pending) |
-| `/wynnvoicechat disable`                                      | Turn voice off and disconnect                             |
-
-`tier` is the audience that may hear you: `PARTY`, `FRIENDS_AND_GUILD` or `EVERYONE`. Two
-players on `EVERYONE`, on the same world and housing plot and within range, hear each other
-through Simple Voice Chat; Simple Voice Chat's own disable toggle stops delivery. On
-`FRIENDS_AND_GUILD` you additionally need to be mutual friends or in the same guild: the mod
-reads your friend list from `/friend list`, and the relay looks your guild up on the Wynncraft
-public API (cached ten minutes), so a client can never claim a guild it is not in. Choosing
-`EVERYONE` shows the rules once; until you accept them (`everyoneWarningAccepted`) the relay is
-told `PARTY`, and cancelling reverts the setting to `PARTY`. The relay may additionally cap the
-audience at friends & guild (`VOICE_EVERYONE_ENABLED`); the mod then skips the rules screen and
-prints the cap once per session instead.
-
-The guild channel (`guildChannel`) works like the party: every guild member who also turned it on
-hears you on any world, shown as a read-only group named after your guild prefix in Simple Voice Chat, unless you are in
-a party, which takes precedence. Turning it on shows a notice once (`guildWarningAccepted`); until
-you accept it the relay is told the channel is off. Your guild's owner and chiefs, as reported by
-the Wynncraft API, can mute a member in the channel: a muted member still hears the channel and is
-still heard nearby, but not in the channel. Blocks win over all of this.
-
-A call (`/wynnvoicechat call <player>`) is a private two-person channel with a mutual friend on any
-world, shown as a read-only "Call" group in Simple Voice Chat. Both of you must be on voice and out
-of any party; an invite rings for 30 seconds, one at a time, and is refused when the other side is
-busy or has do-not-disturb on (`dnd`). The call ends when either hangs up, leaves voice, joins a
-party or blocks the other.
-
-Blocks are symmetric and permanent until lifted; the name is looked up among players on voice
-first, then on Mojang, so you can block someone who is offline. Once the relay confirms a block
-the mod also sends `/ignore add <player>` (and `/ignore remove` on unblock) so text chat is
-silenced too; set `blockAlsoIgnores` to `false` to keep the two apart. A report needs both of you on
-voice and the other player audible to you within the last two minutes; the relay then stores the
-last two minutes of their speech and yours as evidence, and answers in chat with the report id.
-Reports are limited to one per minute and ten per day.
-
-### Sounds
-
-Calls and voice presence are audible (`sounds`, `/wynnvoicechat sounds <on|off>`), on the
-Voice/Speech volume slider: `call.incoming` loops while someone is calling you, `call.ringback`
-while your call rings, then one of `call.connected`, `call.ended`, `call.declined` or `call.busy`
-(also for do-not-disturb) plays once; `peer.joined` and `peer.left` play once per roster change when
-someone who can hear you arrives or leaves, and `mic.mute` / `mic.unmute` follow Simple Voice
-Chat's mute toggle. Every event is declared in `assets/wynnvoicechat/sounds.json` and backed by
-`assets/wynnvoicechat/sounds/<event>.ogg` (mono Vorbis, generated by `docs/assets/call-sounds-gen.py`).
-A resource pack replaces a cue by shipping its own `assets/wynnvoicechat/sounds/<event>.ogg`, or its
-own `sounds.json` to remap events, exactly like Wynntils' sounds.
-
-### Calls
-
-An incoming call shows a panel top-right with the caller's face, their name and `[Y] Accept`
-`[N] Decline` (the letters follow your keybinds, set under Controls → WynnVoiceChat). While your
-own call rings, and then for the whole call, a small pill in the same corner shows the peer's face,
-their name, the call timer and `[H]` to hang up; a finished call's outcome lingers there for two
-seconds. `hud: false` (`/wynnvoicechat hud off`) hides the panel and pill; the keys and the chat
-lines keep working. The faces come from the tab list when the peer shares your world and from
-Mojang's profile service otherwise. The hang-up glyph and the nameplate speaker are the mod's own
-16×16 sprites under `assets/wynnvoicechat/textures/` (generated by `docs/assets/hud-icons-gen.py`),
-replaceable by a resource pack like any texture.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-## Roadmap
-
-- [x] Shared protocol and relay authentication
-- [x] Mod connects and authenticates on world join
-- [x] Proximity voice on the same world and housing instance
-- [x] Party tier: hear your party anywhere
-- [x] Friends & guild tier
-- [x] Consent screen, `/wynnvoicechat` command and config
-- [x] Block and report with audio evidence
-- [x] Discord-driven moderation
-- [x] Docker image for the relay
-- [ ] Modrinth release
-
-See the [open issues][issues-url] for a full list of proposed features and known issues.
+The mod is `mod/build/libs/wynnvoicechat-<version>.jar`; the relay is
+`server/build/libs/wynnvoicechat-relay-<version>-all.jar`. The build has three modules:
+`protocol/` (packets shared by both), `server/` (the Kotlin relay) and `mod/` (the Fabric client mod).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -271,17 +94,10 @@ See the [open issues][issues-url] for a full list of proposed features and known
 
 ## Contributing
 
-Contributions are welcome. If you have a suggestion, fork the repo and open a pull request,
-or open an issue with the tag "enhancement". See [CONTRIBUTING.md](CONTRIBUTING.md) for the
-full guide and the [Code of Conduct](.github/CODE_OF_CONDUCT.md).
-
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Make sure `./gradlew build` passes
-4. Commit with a [Conventional Commits](https://www.conventionalcommits.org) subject
-   (`git commit -m 'feat: add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a pull request
+Contributions are welcome. Fork the repo, make sure `./gradlew build` passes, commit with a
+[Conventional Commits](https://www.conventionalcommits.org) subject and open a pull request,
+or open an issue with the tag "enhancement". See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
