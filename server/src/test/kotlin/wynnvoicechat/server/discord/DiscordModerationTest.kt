@@ -195,8 +195,7 @@ class DiscordModerationTest {
         assertTrue(report[VoiceReportsTable.handled])
         assertEquals("modbob", report[VoiceReportsTable.handledBy])
 
-        voice.maintain()
-        assertEquals(EndReason.BANNED, (sent[target.uuid]!!.last() as Packet.Ended).reason)
+        assertEquals(EndReason.BANNED, (sent[target.uuid]!!.last() as Packet.Ended).reason, "kicked at once, not on the next maintenance pass")
         assertNull(voice.sessionOf(target.uuid))
         assertTrue(sent[reporter.uuid]!!.none { it is Packet.Ended })
     }
@@ -282,6 +281,7 @@ class DiscordModerationTest {
     @Test
     fun `ban and unban by name resolve live sessions then mojang`() {
         val bob = onVoice("Bob")
+        profiles["Bob"] = bob.uuid // the ban drops Bob's session at once, so the unban resolves through Mojang
         val offline = UUID.randomUUID()
         profiles["Offline"] = offline
 
@@ -309,6 +309,7 @@ class DiscordModerationTest {
     fun `bans and blocks are listed`() {
         assertEquals("No active bans.", content(handle(slash("bans"))))
         val bob = onVoice("Bob")
+        profiles["Bob"] = bob.uuid
         val carol = player("Carol")
         handle(slash("ban", "player" to "Bob", "days" to 1, "reason" to "disruption"))
         moderation.ban(carol.uuid, "", "modbob", null)
@@ -316,7 +317,7 @@ class DiscordModerationTest {
 
         val bans = content(handle(slash("bans"))).lines()
         assertEquals(2, bans.size)
-        assertEquals("Bob (`${bob.uuid}`) — until <t:${(now + 24 * 60 * 60_000L) / 1000}:f> — by modbob — Disruption (earrape, soundboards, spam)", bans[0])
+        assertEquals("`${bob.uuid}` — until <t:${(now + 24 * 60 * 60_000L) / 1000}:f> — by modbob — Disruption (earrape, soundboards, spam)", bans[0])
         assertEquals("`${carol.uuid}` — permanent — by modbob", bans[1])
 
         assertEquals("`${carol.uuid}`", content(handle(slash("blocks", "player" to "Bob"))))
@@ -345,6 +346,8 @@ class DiscordModerationTest {
         assertEquals(3, parts.size)
         assertTrue(parts[0].startsWith("\r\nContent-Disposition: form-data; name=\"payload_json\"\r\nContent-Type: application/json\r\n\r\n"))
         val payload = JsonParser.parseString(parts[0].substringAfter("\r\n\r\n").trim()).asJsonObject
+        assertEquals("<@&mod-role>", payload["content"].asString)
+        assertEquals(listOf("mod-role"), payload.getAsJsonObject("allowed_mentions").getAsJsonArray("roles").map { it.asString })
         val embed = payload.getAsJsonArray("embeds").single().asJsonObject
         assertEquals("Voice report #7", embed["title"].asString)
         val fields = embed.getAsJsonArray("fields").associate { it.asJsonObject["name"].asString to it.asJsonObject["value"].asString }
@@ -374,6 +377,7 @@ class DiscordModerationTest {
     @Test
     fun `bans and unbans are audited in the table the history command and the mod log`() {
         val bob = onVoice("Bob")
+        profiles["Bob"] = bob.uuid
         requests.clear()
 
         handle(slash("ban", "player" to "Bob", "days" to 7, "reason" to "doxxing"))
@@ -390,6 +394,6 @@ class DiscordModerationTest {
         assertEquals("Carol (`${carol.uuid}`) has never been banned.", content(handle(slash("history", "player" to "Carol"))))
 
         val log = requests.filter { it.path == "/channels/mod-log/messages" }.map { JsonParser.parseString(String(it.body)).asJsonObject["content"].asString }
-        assertEquals(listOf("<@42> banned Bob (`${bob.uuid}`) for 7 days — Sharing personal information", "<@42> unbanned Bob (`${bob.uuid}`)"), log)
+        assertEquals(listOf("<@42> banned Bob (`${bob.uuid}`) for 7 days — Sharing personal information", "<@42> unbanned `${bob.uuid}`"), log)
     }
 }

@@ -335,6 +335,7 @@ class DiscordModeration(
     private fun ban(target: UUID, days: Int, reason: String, moderator: Moderator) {
         moderation.ban(target, reason, moderator.name, if (days > 0) clock() + days * DAY_MS else null)
         modLog("<@${moderator.id}> banned ${nameOf(target)} ${duration(days)} — $reason")
+        voice.enforceBan(target)
     }
 
     private fun unban(target: UUID, moderator: Moderator): Boolean {
@@ -377,6 +378,8 @@ class DiscordModeration(
         fun button(label: String, customId: String, style: Int) = mapOf("type" to BUTTON, "style" to style, "label" to label, "custom_id" to customId)
         val window = if (r.audioFrom != null && r.audioTo != null) "<t:${r.audioFrom / 1000}:T> to <t:${r.audioTo / 1000}:T>" else "no audio"
         val payload = mapOf(
+            "content" to "<@&${config.modRoleId}>",
+            "allowed_mentions" to mapOf("roles" to listOf(config.modRoleId)),
             "embeds" to listOf(
                 mapOf(
                     "title" to "Voice report #${report.id}",

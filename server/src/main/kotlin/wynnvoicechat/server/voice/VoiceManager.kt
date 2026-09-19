@@ -656,6 +656,17 @@ class VoiceManager(
         if (clips + bans + reports > 0) logger.info("Pruned {} reports' clips, {} expired bans, {} report records", clips, bans, reports)
     }
 
+    /** Drop [userId]'s session now rather than on the next maintenance pass. */
+    fun enforceBan(userId: UUID) {
+        moderation.activeBanRows(listOf(userId)).forEach { enforce(it, clock()) }
+    }
+
+    private fun enforce(ban: Ban, now: Long) {
+        val session = sessions.remove(ban.userId) ?: return
+        end(session, SessionEnd.BANNED, now)
+        session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
+    }
+
     fun maintain() {
         val now = clock()
         // ponytail: the failure window is one minute, so a wholesale clear every maintain loses nothing
@@ -664,11 +675,7 @@ class VoiceManager(
         recentlyLeft.values.removeIf { it <= now }
         val bans = moderation.activeBanRows()
         bansActive.set(bans.size)
-        for (ban in bans) {
-            val session = sessions.remove(ban.userId) ?: continue
-            end(session, SessionEnd.BANNED, now)
-            session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
-        }
+        bans.forEach { enforce(it, now) }
         prune(now)
         var total = sessions.values.sumOf { it.speech.bytes }
         if (total <= config.ringBufferCapBytes) return
