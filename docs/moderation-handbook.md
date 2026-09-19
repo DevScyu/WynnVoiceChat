@@ -7,7 +7,7 @@ For volunteer moderators on the WynnVoiceChat Discord. The public rules are at
 ## What you are moderating
 
 The relay carries live voice only. Nothing is stored except the **last two minutes of speech** per
-speaker, and that only leaves memory when someone files a report. A report posts to `#voice-reports`
+speaker, and that only leaves memory when someone files a report. A report becomes one post in the `#voice-reports` forum
 with two clips (the reported player and the reporter), the reason typed in game, the world and
 instance, and how many other players could hear the reporter at the time.
 
@@ -21,9 +21,11 @@ Wynncraft's; only the cases under *Escalation* go to their team.
 3. **Pick the length** from the ladder in terms §7 — 7 days for a first ordinary breach, 30 days for a
    repeat or a serious one, permanent for illegal content, the for-everyone list, ban evasion, or a
    third breach. `/voice history <player>` shows their previous bans so "repeat" is a fact, not a guess.
-4. **Press the button** on the report (`Ban 7d`, `Ban 30d`, `Ban permanent`, or `Dismiss`) and pick the
+4. **Press the button** on the post (`Ban 7d`, `Ban 30d`, `Ban permanent`, or `Dismiss`) and pick the
    rule broken in the modal. The player is disconnected at once, the reason you picked is shown to them
-   in game, the reporter is told the outcome, and `#mod-log` gets one line.
+   in game, the reporter is told the outcome, `#mod-log` gets one line, and the post is closed: the
+   outcome is its last message, its tag flips from `Open` to `Actioned` or `Dismissed`, and it is locked.
+   Discuss a report inside its post while it is open; the whole history stays together.
 
 The reason you pick is the whole message the player sees, so choose the rule that fits rather than the
 closest-sounding one. Reasons, exactly as the modal lists them:
@@ -86,7 +88,7 @@ Rules:
 
 | Channel | Purpose |
 |---|---|
-| `#voice-reports` | Reports with buttons; moderators only |
+| `#voice-reports` | Forum, one post per report with the buttons; filter by the `Open` tag for the backlog |
 | `#mod-log` | One line per ban and unban; read-only |
 | `#ban-appeals` | Private appeal threads |
 | `#staff-chat` | Anything you want a second opinion on |
