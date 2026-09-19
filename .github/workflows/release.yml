@@ -1,0 +1,27 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  modrinth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :mod:build -Pversion=${GITHUB_REF_NAME#v}
+      - run: mv mod/build/libs/mod-*.jar mod/build/libs/wynnvoicechat-${GITHUB_REF_NAME#v}.jar
+      - uses: Kira-NT/mc-publish@v3
+        with:
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: mod/build/libs/wynnvoicechat-*.jar
+          name: WynnVoiceChat ${{ github.ref_name }}
+          version: ${{ github.ref_name }}
+          game-versions: 1.21.11
+          loaders: fabric
+          java: 21

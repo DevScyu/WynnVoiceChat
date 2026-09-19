@@ -17,5 +17,11 @@
     "fabric-api": "*",
     "minecraft": "1.21.11",
     "java": ">=21"
+  },
+  "custom": {
+    "mc-publish": {
+      "modrinth": "EqqrBoe4",
+      "dependencies": ["voicechat@>=2.6.0(required){modrinth:simple-voice-chat}"]
+    }
   }
 }
