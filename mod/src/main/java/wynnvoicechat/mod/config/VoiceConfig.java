@@ -33,6 +33,8 @@ public final class VoiceConfig {
     public boolean guildWarningAccepted;
     /** Refuse incoming friend calls. */
     public boolean dnd;
+    /** Ring, call and presence cues. */
+    public boolean sounds = true;
     private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {

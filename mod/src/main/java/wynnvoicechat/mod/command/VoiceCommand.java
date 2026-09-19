@@ -59,6 +59,9 @@ public final class VoiceCommand {
                     .then(literal("dnd")
                             .then(literal("on").executes(context -> setDnd(context, mod, true)))
                             .then(literal("off").executes(context -> setDnd(context, mod, false))))
+                    .then(literal("sounds")
+                            .then(literal("on").executes(context -> setSounds(context, mod, true)))
+                            .then(literal("off").executes(context -> setSounds(context, mod, false))))
                     .then(literal("who").executes(context -> who(context, mod)))
                     .then(literal("blocks").executes(context -> request(context, mod, new Packet.BlockList())))
                     .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
@@ -117,6 +120,12 @@ public final class VoiceCommand {
     private static int setDnd(CommandContext<FabricClientCommandSource> context, VoiceMod mod, boolean on) {
         mod.setDnd(on);
         context.getSource().sendFeedback(Component.translatable(on ? "wynnvoicechat.command.dndOn" : "wynnvoicechat.command.dndOff").withStyle(ChatFormatting.GREEN));
+        return 1;
+    }
+
+    private static int setSounds(CommandContext<FabricClientCommandSource> context, VoiceMod mod, boolean on) {
+        mod.setSounds(on);
+        context.getSource().sendFeedback(Component.translatable(on ? "wynnvoicechat.command.soundsOn" : "wynnvoicechat.command.soundsOff").withStyle(ChatFormatting.GREEN));
         return 1;
     }
 

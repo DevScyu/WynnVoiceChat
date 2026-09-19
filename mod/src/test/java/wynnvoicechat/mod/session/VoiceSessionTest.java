@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import wynnvoicechat.mod.svc.VoiceChatPayloads;
+import wynnvoicechat.protocol.CallAction;
 import wynnvoicechat.protocol.CallStateKind;
 import wynnvoicechat.protocol.EndReason;
 import wynnvoicechat.protocol.Packet;
@@ -41,6 +42,7 @@ class VoiceSessionTest {
     private final List<String> groupNames = new ArrayList<>();
     private final List<VoiceTier> maxTiers = new ArrayList<>();
     private final List<Packet.CallState> callStates = new ArrayList<>();
+    private final List<String> cues = new ArrayList<>();
     private Set<String> party = Set.of();
     private Set<String> friends = Set.of();
 
@@ -114,6 +116,16 @@ class VoiceSessionTest {
         @Override
         public void callState(Packet.CallState state) {
             callStates.add(state);
+        }
+
+        @Override
+        public void sound(Cue cue) {
+            cues.add(cue.name());
+        }
+
+        @Override
+        public void silence() {
+            cues.add("silence");
         }
     };
     private final VoiceSession session = new VoiceSession(VoiceTier.EVERYONE, effects);
@@ -482,5 +494,64 @@ class VoiceSessionTest {
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         session.onPacket(SECRET);
         assertEquals(List.of(VoiceTier.FRIENDS_AND_GUILD, VoiceTier.EVERYONE), maxTiers, "a lifted cap is");
+    }
+
+    @Test
+    void callStatesPlayTheirCueAndTheLoopStopsOnAnyOutcome() {
+        joined();
+        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", CallStateKind.BUSY));
+        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", CallStateKind.DND));
+        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", CallStateKind.NO_ANSWER));
+        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", CallStateKind.DECLINED));
+        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
+        session.onPacket(new Packet.CallState("F", CallStateKind.ENDED));
+        assertEquals(List.of("RINGBACK", "BUSY", "RINGBACK", "BUSY", "RINGBACK", "ENDED", "RINGBACK", "DECLINED", "INCOMING", "CONNECTED", "ENDED"), cues);
+    }
+
+    @Test
+    void staleCallAnswersAndSessionEndsSilenceTheLoop() {
+        joined();
+        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.request(new Packet.Call("G", CallAction.INVITE));
+        session.onPacket(new Packet.Result(ResultKind.CALL, false, "Hang up or answer your current call first"));
+        session.request(new Packet.Call("", CallAction.ACCEPT));
+        session.onPacket(new Packet.Result(ResultKind.CALL, false, "Nobody is calling you"));
+        session.onPacket(new Packet.Result(ResultKind.BLOCK, false, "Unknown player"));
+        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onClosed();
+        assertEquals(List.of("INCOMING", "silence", "INCOMING", "silence", "INCOMING", "silence"), cues);
+    }
+
+    @Test
+    void peerArrivalsAndDeparturesPlayOncePerPacketAfterTheFirst() {
+        joined();
+        Peer a = new Peer(UUID.randomUUID(), "A", false, Relation.NONE, true, false);
+        Peer b = new Peer(UUID.randomUUID(), "B", false, Relation.NONE, true, false);
+        Peer c = new Peer(UUID.randomUUID(), "C", false, Relation.NONE, true, false);
+        Peer deaf = new Peer(UUID.randomUUID(), "D", false, Relation.NONE, false, false);
+        session.onPacket(new Packet.Peers(List.of(a)));
+        assertTrue(cues.isEmpty(), "the first roster is not an arrival");
+        session.onPacket(new Packet.Peers(List.of(a, b, c)));
+        assertEquals(List.of("PEER_JOINED"), cues, "two arrivals, one cue");
+        session.onPacket(new Packet.Peers(List.of(a, b, c)));
+        assertEquals(List.of("PEER_JOINED"), cues, "unchanged roster is silent");
+        session.onPacket(new Packet.Peers(List.of(b, deaf)));
+        assertEquals(List.of("PEER_JOINED", "PEER_LEFT"), cues, "a peer who cannot hear us is not an arrival");
+        session.onPacket(new Packet.Peers(List.of(a, deaf)));
+        assertEquals(List.of("PEER_JOINED", "PEER_LEFT", "PEER_JOINED", "PEER_LEFT"), cues, "join and leave in one packet play both once");
+
+        session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
+        session.onPacket(SECRET);
+        cues.clear();
+        session.onPacket(new Packet.Peers(List.of(a, b)));
+        assertTrue(cues.isEmpty(), "a fresh session starts over");
     }
 }

@@ -30,7 +30,9 @@ import wynnvoicechat.mod.config.VoiceConfig;
 import wynnvoicechat.mod.config.VoiceConfig.Notice;
 import wynnvoicechat.mod.net.VoiceClient;
 import wynnvoicechat.mod.screen.ConsentScreen;
+import wynnvoicechat.mod.session.Cue;
 import wynnvoicechat.mod.session.VoiceSession;
+import wynnvoicechat.mod.sound.Sounds;
 import wynnvoicechat.mod.svc.VoiceChatBridge;
 import wynnvoicechat.mod.svc.VoiceChatPayloads;
 import wynnvoicechat.mod.wynn.FriendsTracker;
@@ -63,6 +65,7 @@ public final class VoiceMod implements ClientModInitializer {
     private PartyTracker party;
     private FriendsTracker friends;
     private final IgnoreTracker ignore = new IgnoreTracker();
+    private final Sounds sounds = new Sounds();
     private volatile boolean onWynncraft;
     private boolean svcInstalled;
     private boolean refused;
@@ -245,6 +248,22 @@ public final class VoiceMod implements ClientModInitializer {
 
     public boolean dnd() {
         return config.dnd;
+    }
+
+    public void setSounds(boolean on) {
+        config.sounds = on;
+        saveConfig();
+        if (!on) sounds.stop();
+    }
+
+    /** Simple Voice Chat's mic mute toggled; only worth a cue where the mod is active. */
+    public static void micMuted(boolean muted) {
+        VoiceMod mod = instance;
+        if (mod != null && mod.onWynncraft) mod.play(muted ? Cue.MIC_MUTE : Cue.MIC_UNMUTE);
+    }
+
+    private void play(Cue cue) {
+        if (config.sounds) sounds.play(cue);
     }
 
     public boolean request(Packet packet) {
@@ -500,6 +519,16 @@ public final class VoiceMod implements ClientModInitializer {
                 case RINGING, ENDED -> ChatFormatting.GRAY;
                 default -> ChatFormatting.YELLOW;
             });
+        }
+
+        @Override
+        public void sound(Cue cue) {
+            instance.play(cue);
+        }
+
+        @Override
+        public void silence() {
+            instance.sounds.stop();
         }
 
         private static Component button(String key, String command, ChatFormatting colour) {

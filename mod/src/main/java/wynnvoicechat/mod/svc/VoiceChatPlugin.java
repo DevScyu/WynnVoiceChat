@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import de.maxhenkel.voicechat.api.VoicechatPlugin;
 import de.maxhenkel.voicechat.api.events.EventRegistration;
+import de.maxhenkel.voicechat.api.events.MicrophoneMuteEvent;
 import de.maxhenkel.voicechat.api.events.NameTagIconRenderEvent;
 import de.maxhenkel.voicechat.events.RenderEvents;
 import net.fabricmc.fabric.api.event.Event;
@@ -34,6 +35,7 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
     @Override
     public void registerEvents(EventRegistration registration) {
         registration.registerEvent(NameTagIconRenderEvent.class, this::onIconRender);
+        registration.registerEvent(MicrophoneMuteEvent.class, event -> VoiceMod.micMuted(event.isDisabled()));
         RenderEvents.RENDER_NAMEPLATE.addPhaseOrdering(Event.DEFAULT_PHASE, AFTER_VOICECHAT);
         RenderEvents.RENDER_NAMEPLATE.register(AFTER_VOICECHAT, this::onNameplate);
     }

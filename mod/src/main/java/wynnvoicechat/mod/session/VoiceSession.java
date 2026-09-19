@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import wynnvoicechat.mod.svc.VoiceChatPayloads;
+import wynnvoicechat.protocol.CallAction;
 import wynnvoicechat.protocol.CallStateKind;
 import wynnvoicechat.protocol.EndReason;
 import wynnvoicechat.protocol.Packet;
@@ -60,6 +62,12 @@ public final class VoiceSession {
 
         /** A friend call progressed; say so, with accept/decline controls for an incoming one. */
         void callState(Packet.CallState state);
+
+        /** Play this cue; a call cue first stops any ringing loop, and the two ring cues loop until stopped. */
+        void sound(Cue cue);
+
+        /** Stop any ringing loop. */
+        void silence();
     }
 
     public static final UUID PARTY_GROUP = UUID.fromString("57c1a711-0000-0000-0000-000000000001");
@@ -85,6 +93,7 @@ public final class VoiceSession {
     private boolean peersAnnounced;
     private final Map<ResultKind, String> pendingBlockTargets = new EnumMap<>(ResultKind.class);
     private EndReason lastRefusal;
+    private CallAction lastCallAction;
 
     public VoiceSession(VoiceTier tier, Effects effects) {
         this.tier = tier;
@@ -145,6 +154,7 @@ public final class VoiceSession {
     public boolean request(Packet packet) {
         if (!authenticated) return false;
         if (packet instanceof Packet.Block block) pendingBlockTargets.put(block.blocked() ? ResultKind.BLOCK : ResultKind.UNBLOCK, block.targetName());
+        if (packet instanceof Packet.Call call) lastCallAction = call.action();
         effects.send(packet);
         return true;
     }
@@ -178,22 +188,30 @@ public final class VoiceSession {
             case Packet.Ended ended -> onEnded(ended);
             case Packet.Result result -> {
                 effects.result(result);
+                if (result.kind() == ResultKind.CALL && !result.ok() && staleAnswer()) effects.silence();
                 String target = pendingBlockTargets.remove(result.kind());
                 if (result.ok() && target != null) effects.ignore(target, result.kind() == ResultKind.BLOCK);
             }
             case Packet.BlockListResult blocks -> effects.blockList(blocks.names());
             case Packet.CallState state -> {
                 effects.callState(state);
+                effects.sound(Cue.forCall(state.state()));
                 if (state.state() == CallStateKind.ACTIVE) callPeer = state.peerName();
                 else if (state.state() == CallStateKind.ENDED) callPeer = null;
                 placeGroup();
                 syncStates();
             }
             case Packet.Peers peers -> {
+                List<Peer> previous = lastPeers;
                 lastPeers = peers.peers();
                 if (!peersAnnounced) {
                     peersAnnounced = true;
                     if (!lastPeers.isEmpty()) effects.joined(lastPeers.size(), (int) lastPeers.stream().filter(Peer::reachable).count());
+                } else {
+                    Set<String> before = reachableNames(previous);
+                    Set<String> after = reachableNames(lastPeers);
+                    if (!before.containsAll(after)) effects.sound(Cue.PEER_JOINED);
+                    if (!after.containsAll(before)) effects.sound(Cue.PEER_LEFT);
                 }
                 placeGroup();
                 syncStates();
@@ -202,8 +220,18 @@ public final class VoiceSession {
         }
     }
 
+    /** A refused accept or decline means the invite is gone; a refused invite or hangup says nothing about a ring in progress. */
+    private boolean staleAnswer() {
+        return lastCallAction == CallAction.ACCEPT || lastCallAction == CallAction.DECLINE;
+    }
+
+    private static Set<String> reachableNames(List<Peer> peers) {
+        return peers.stream().filter(Peer::reachable).map(Peer::name).collect(Collectors.toSet());
+    }
+
     private void onEnded(Packet.Ended ended) {
         active = false;
+        effects.silence();
         if (ended.reason() == EndReason.TIMED_OUT) {
             join();
             return;
@@ -216,6 +244,7 @@ public final class VoiceSession {
     public void onClosed() {
         authenticated = false;
         active = false;
+        effects.silence();
     }
 
     public void updatePosition(float x, float y, float z) {

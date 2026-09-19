@@ -1,0 +1,74 @@
+{
+  "call.incoming": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.incoming",
+        "stream": true
+      }
+    ]
+  },
+  "call.ringback": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.ringback",
+        "stream": true
+      }
+    ]
+  },
+  "call.connected": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.connected"
+      }
+    ]
+  },
+  "call.ended": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.ended"
+      }
+    ]
+  },
+  "call.declined": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.declined"
+      }
+    ]
+  },
+  "call.busy": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:call.busy"
+      }
+    ]
+  },
+  "peer.joined": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:peer.joined"
+      }
+    ]
+  },
+  "peer.left": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:peer.left"
+      }
+    ]
+  },
+  "mic.mute": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:mic.mute"
+      }
+    ]
+  },
+  "mic.unmute": {
+    "sounds": [
+      {
+        "name": "wynnvoicechat:mic.unmute"
+      }
+    ]
+  }
+}
