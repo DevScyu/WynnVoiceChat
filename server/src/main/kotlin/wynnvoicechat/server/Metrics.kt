@@ -14,8 +14,11 @@ import io.micrometer.core.instrument.binder.netty4.NettyAllocatorMetrics
 import io.micrometer.core.instrument.binder.system.FileDescriptorMetrics
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics
 import io.micrometer.core.instrument.binder.system.UptimeMetrics
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import io.micrometer.registry.otlp.OtlpConfig
+import io.micrometer.registry.otlp.OtlpMeterRegistry
 import io.netty.buffer.PooledByteBufAllocator
 import java.net.InetSocketAddress
 import java.time.Duration
@@ -25,13 +28,15 @@ import wynnvoicechat.protocol.Protocol
 import wynnvoicechat.server.voice.VoiceConfig
 
 /**
- * Process-wide Prometheus registry, JVM/Netty binders and the loopback `/metrics` endpoint.
+ * Process-wide registry, JVM/Netty binders and the loopback `/metrics` endpoint.
+ * With `METRICS_PUSH_URL` set the same meters are also pushed over OTLP/HTTP, so nothing on the host needs to be reachable.
  * Hot paths cache their counters as fields; nothing here carries player identity.
  */
 object Metrics {
     private val log = LoggerFactory.getLogger(Metrics::class.java)
 
-    val registry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+    private val prometheus = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+    val registry = CompositeMeterRegistry().add(prometheus)
 
     val HTTP_SLO = doubleArrayOf(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
     val DB_SLO = doubleArrayOf(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0)
@@ -84,12 +89,25 @@ object Metrics {
         else -> HttpOutcome.ERROR
     }
 
-    fun scrape(): String = registry.scrape()
+    fun scrape(): String = prometheus.scrape()
+
+    fun push(url: String, token: String, stepSeconds: Long) {
+        val config = object : OtlpConfig {
+            override fun get(key: String): String? = null
+            override fun url() = url
+            override fun headers() = mapOf("Authorization" to "Bearer $token")
+            override fun step(): Duration = Duration.ofSeconds(stepSeconds)
+            override fun baseTimeUnit() = java.util.concurrent.TimeUnit.SECONDS
+            override fun resourceAttributes() = mapOf("service.name" to "wynnvoicechat-relay", "service.version" to version)
+        }
+        registry.add(OtlpMeterRegistry(config, io.micrometer.core.instrument.Clock.SYSTEM))
+        log.info("Pushing metrics to {} every {}s", url, stepSeconds)
+    }
 
     fun start(bind: String, port: Int): HttpServer = HttpServer.create(InetSocketAddress(bind, port), 0).apply {
         createContext("/metrics") { exchange ->
             exchange.use {
-                val body = registry.scrape().toByteArray()
+                val body = prometheus.scrape().toByteArray()
                 it.responseHeaders.add("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
                 it.sendResponseHeaders(200, body.size.toLong())
                 it.responseBody.write(body)

@@ -41,6 +41,7 @@ fun main() {
     }
     if (discord != null) discord.start(env("HTTP_PORT", "9101").toInt())
     else log.warn("Discord moderation disabled: set {} to enable it", DiscordConfig.VARIABLES.joinToString(", "))
+    System.getenv("METRICS_PUSH_URL")?.takeIf { it.isNotBlank() }?.let { Metrics.push(it, env("METRICS_PUSH_TOKEN", ""), env("METRICS_PUSH_STEP", "30").toLong()) }
     val metrics = env("METRICS_PORT", "9102").toInt().takeIf { it != 0 }?.let { Metrics.start(env("METRICS_BIND", "127.0.0.1"), it) }
     server.start()
     // ponytail: Pterodactyl stops Minecraft-style eggs by typing "stop" on stdin; exiting runs the shutdown hook
