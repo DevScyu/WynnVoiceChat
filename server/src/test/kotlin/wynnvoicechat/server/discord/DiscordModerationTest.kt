@@ -58,8 +58,9 @@ class DiscordModerationTest {
     private val discord = DiscordModeration(config, voice, { method, path, contentType, body ->
         requests.add(Request(method, path, contentType, body))
         CompletableFuture.completedFuture(when {
+            method == "GET" && path == "/channels/report-channel" -> """{"available_tags":[{"id":"t-open","name":"Open"},{"id":"t-actioned","name":"Actioned"},{"id":"t-dismissed","name":"Dismissed"}]}"""
+            path == "/channels/report-channel/threads" -> """{"id":"msg-1"}"""
             path.endsWith("/threads") -> """{"id":"777"}"""
-            path == "/channels/report-channel/messages" -> """{"id":"msg-1"}"""
             else -> "{}"
         })
     }) { now }
@@ -124,9 +125,10 @@ class DiscordModerationTest {
     @Test
     fun `http endpoint answers ping with pong and unsigned requests with 401`() {
         discord.start(0)
-        assertEquals("PUT", requests.single().method)
-        assertEquals("/applications/app/guilds/guild/commands", requests.single().path)
-        assertTrue(String(requests.single().body).contains("\"default_member_permissions\":\"0\""))
+        val commands = requests.single { it.method == "PUT" }
+        assertEquals("/applications/app/guilds/guild/commands", commands.path)
+        assertTrue(String(commands.body).contains("\"default_member_permissions\":\"0\""))
+        assertEquals("/channels/report-channel", requests.single { it.method == "GET" }.path, "forum tags are read once at startup")
 
         val body = """{"type":1}"""
         val http = HttpClient.newHttpClient()
@@ -265,6 +267,7 @@ class DiscordModerationTest {
         val (line, patch) = closing("msg-1")
         assertEquals("Dismissed by <@42>", line)
         assertTrue(patch!!["archived"].asBoolean && patch["locked"].asBoolean, "archived and locked so it stays a record")
+        assertEquals(listOf("t-dismissed"), patch.getAsJsonArray("applied_tags").map { it.asString })
 
         val carol = onVoice("Carol")
         profiles["Carol"] = carol.uuid
@@ -274,6 +277,7 @@ class DiscordModerationTest {
         val (slashLine, slashPatch) = closing("msg-1")
         assertEquals("Banned for 7 days by <@42> — Hate speech", slashLine, "a slash ban closes the threads of the reports it actions")
         assertTrue(slashPatch!!["archived"].asBoolean)
+        assertEquals(listOf("t-actioned"), slashPatch.getAsJsonArray("applied_tags").map { it.asString })
 
         val unposted = filedReport(reporter, player("Dave"))
         val before = requests.size
@@ -400,17 +404,17 @@ class DiscordModerationTest {
 
         discord.postReport(FiledReport(7, "Alice", "Bob", report, reporter, target)).join()
 
-        val request = requests.first()
-        assertEquals("POST", request.method)
-        assertEquals("/channels/report-channel/messages", request.path)
-        val thread = requests.single { it.path == "/channels/report-channel/messages/msg-1/threads" }
-        assertEquals("Report #7: Bob", JsonParser.parseString(String(thread.body)).asJsonObject["name"].asString, "a thread on the report keeps the discussion together")
+        val request = requests.single { it.method == "POST" }
+        assertEquals("/channels/report-channel/threads", request.path, "a forum post: the thread and its starter message in one call")
         val boundary = request.contentType.removePrefix("multipart/form-data; boundary=")
         val body = String(request.body, Charsets.ISO_8859_1)
         val parts = body.split("--$boundary").filter { it.isNotBlank() && it != "--\r\n" }
         assertEquals(3, parts.size)
         assertTrue(parts[0].startsWith("\r\nContent-Disposition: form-data; name=\"payload_json\"\r\nContent-Type: application/json\r\n\r\n"))
-        val payload = JsonParser.parseString(parts[0].substringAfter("\r\n\r\n").trim()).asJsonObject
+        val post = JsonParser.parseString(parts[0].substringAfter("\r\n\r\n").trim()).asJsonObject
+        assertEquals("Report #7: Bob", post["name"].asString)
+        assertEquals(listOf("t-open"), post.getAsJsonArray("applied_tags").map { it.asString })
+        val payload = post.getAsJsonObject("message")
         assertEquals("<@&mod-role>", payload["content"].asString)
         assertEquals(listOf("mod-role"), payload.getAsJsonObject("allowed_mentions").getAsJsonArray("roles").map { it.asString })
         val embed = payload.getAsJsonArray("embeds").single().asJsonObject

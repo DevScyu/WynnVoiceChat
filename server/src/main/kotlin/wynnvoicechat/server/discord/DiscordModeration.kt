@@ -156,7 +156,7 @@ class DiscordModeration(
             start()
         }
         voice.onReport = { postReport(it) }
-        logger.info("Discord moderation enabled on port {}", boundPort)
+        logger.info("Discord moderation enabled on port {}; report forum tags: {}", boundPort, tags.keys)
     }
 
     fun stop() {
@@ -263,7 +263,7 @@ class DiscordModeration(
         voice.reportHandled(reportId)
         logger.info("Report #{} {} by {}", reportId, outcome.lowercase(), moderator.name)
         val line = "$outcome by <@${moderator.id}>"
-        closeThread(reportId, line)
+        closeThread(reportId, verdict, line)
         return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to line, "components" to emptyList<Any>()))
     }
 
@@ -316,7 +316,7 @@ class DiscordModeration(
         voice.reportHandled(reportId)
         logger.info("Report #{} banned {} by {}", reportId, duration(days), moderator.name)
         val line = "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}"
-        closeThread(reportId, line)
+        closeThread(reportId, Verdict.ACTIONED, line)
         return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to line, "components" to emptyList<Any>()))
     }
 
@@ -340,7 +340,7 @@ class DiscordModeration(
                 val actioned = moderation.openReportsAgainst(uuid).onEach { reportId ->
                     moderation.markHandled(reportId, moderator.name, Verdict.ACTIONED)
                     voice.reportHandled(reportId)
-                    closeThread(reportId, "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}")
+                    closeThread(reportId, Verdict.ACTIONED, "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}")
                 }
                 ephemeral("Banned $player ${duration(days)}." + if (actioned.isEmpty()) "" else " Actioned ${actioned.size} open report(s): ${actioned.joinToString { "#$it" }}.")
             }
@@ -388,16 +388,15 @@ class DiscordModeration(
     }
 
     /** The report's thread gets the outcome as its last line, then is archived and locked; nothing to do for a report that never reached Discord. */
-    private fun closeThread(reportId: Int, line: String) {
+    private fun closeThread(reportId: Int, verdict: Verdict, line: String) {
         val thread = moderation.messageOf(reportId) ?: return
+        val closed = mapOf("archived" to true, "locked" to true, "applied_tags" to listOfNotNull(tags[verdict.name.lowercase()]))
         rest.send("POST", "/channels/$thread/messages", "application/json", gson.toJson(mapOf("content" to line, "allowed_mentions" to mapOf("parse" to emptyList<String>()))).toByteArray())
-            .thenCompose { rest.send("PATCH", "/channels/$thread", "application/json", gson.toJson(mapOf("archived" to true, "locked" to true)).toByteArray()) }
-            .whenComplete { _, error -> threadOutcome(error, "Closing thread for report #$reportId") }
-    }
-
-    private fun threadOutcome(error: Throwable?, what: String) {
-        requests.getValue(Operation.REPORT_THREAD).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
-        if (error != null) logger.warn("{} failed: {}", what, error.message)
+            .thenCompose { rest.send("PATCH", "/channels/$thread", "application/json", gson.toJson(closed).toByteArray()) }
+            .whenComplete { _, error ->
+                requests.getValue(Operation.REPORT_THREAD).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
+                if (error != null) logger.warn("Closing the post for report #{} failed: {}", reportId, error.message)
+            }
     }
 
     /** One line per ban/unban to the mod-log channel, when configured; failures only count, moderation already happened. */
@@ -463,22 +462,34 @@ class DiscordModeration(
             ),
             "attachments" to files.mapIndexed { i, file -> mapOf("id" to i, "filename" to file.name) },
         )
-        val multipart = Multipart(gson.toJson(payload), files)
+        // One forum post per report: the starter message carries the buttons, the post is where moderators discuss it
+        val post = mapOf(
+            "name" to "Report #${report.id}: ${report.targetName}", "auto_archive_duration" to THREAD_ARCHIVE_MINUTES,
+            "applied_tags" to listOfNotNull(tags["open"]), "message" to payload,
+        )
+        val multipart = Multipart(gson.toJson(post), files)
         return CompletableFuture.supplyAsync(multipart::encode)
-            .thenCompose { rest.send("POST", "/channels/${config.reportChannelId}/messages", multipart.contentType, it) }
-            .whenComplete { _, error ->
+            .thenCompose { rest.send("POST", "/channels/${config.reportChannelId}/threads", multipart.contentType, it) }
+            .whenComplete { posted, error ->
                 requests.getValue(Operation.POST_REPORT).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
                 if (error != null) logger.warn("Posting report #{} to Discord failed: {}", report.id, error.message)
+                else moderation.attachMessage(report.id, JsonParser.parseString(posted).asJsonObject["id"].asString)
             }
-            .thenCompose { posted -> openThread(report, JsonParser.parseString(posted).asJsonObject["id"].asString).thenApply { posted } }
     }
 
-    /** A thread on the report message, same id as the message, where moderators discuss it until it is actioned. */
-    private fun openThread(report: FiledReport, messageId: String): CompletableFuture<String> {
-        moderation.attachMessage(report.id, messageId)
-        return rest.send("POST", "/channels/${config.reportChannelId}/messages/$messageId/threads", "application/json",
-            gson.toJson(mapOf("name" to "Report #${report.id}: ${report.targetName}", "auto_archive_duration" to THREAD_ARCHIVE_MINUTES)).toByteArray())
-            .whenComplete { _, error -> threadOutcome(error, "Opening thread for report #${report.id}") }
+    /**
+     * Forum tag ids by lower-case name, read once from the channel. Tags are optional: a forum without
+     * `Open` / `Actioned` / `Dismissed` tags still gets its posts, just untagged.
+     */
+    private val tags: Map<String, String> by lazy {
+        runCatching {
+            rest.send("GET", "/channels/${config.reportChannelId}", "application/json", ByteArray(0)).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .let { JsonParser.parseString(it).asJsonObject.getAsJsonArray("available_tags") ?: JsonArray() }
+                .associate { it.asJsonObject["name"].asString.lowercase() to it.asJsonObject["id"].asString }
+        }.getOrElse { error ->
+            logger.warn("Could not read the report forum's tags: {}", error.message)
+            emptyMap()
+        }
     }
 
     private fun registerCommands() {

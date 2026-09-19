@@ -69,7 +69,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
 | `DISCORD_PUBLIC_KEY`                | —         | Application public key every interaction is verified against |
 | `DISCORD_MOD_ROLE_ID`               | —         | Role allowed to use the buttons and `/voice` commands, re-checked on every interaction |
-| `DISCORD_REPORT_CHANNEL_ID`         | —         | Channel reports are posted to |
+| `DISCORD_REPORT_CHANNEL_ID`         | —         | Forum channel reports are posted to, one post each |
 
 Discord moderation is off unless all six `DISCORD_*` variables are set; reports are still stored
 in SQLite and under `VOICE_REPORT_DIR` either way.
@@ -153,8 +153,11 @@ once-a-minute pass deletes a report's audio clips 30 days after the report, a te
 3. Invite the bot with the `bot` and `applications.commands` scopes (OAuth2 → URL Generator) and
    the *Send Messages* and *Attach Files* permissions.
 4. In your server enable Developer Mode, copy the server id into `DISCORD_GUILD_ID`, the
-   moderator role id into `DISCORD_MOD_ROLE_ID` and the private report channel id into
-   `DISCORD_REPORT_CHANNEL_ID`; give the bot access to that channel. Make the moderator role
+   moderator role id into `DISCORD_MOD_ROLE_ID` and the id of a private **forum** channel into
+   `DISCORD_REPORT_CHANNEL_ID`; give the bot access to it (*Create Posts*, *Send Messages in
+   Posts*, *Manage Threads*, *Attach Files*). Every report becomes one post, closed with the
+   outcome when actioned. Give the forum three tags named `Open`, `Actioned` and `Dismissed` and
+   the relay applies them; without them posts are simply untagged. Make the moderator role
    *mentionable*: every report pings it. Optionally create a read-only channel for
    `DISCORD_MOD_LOG_CHANNEL_ID`; the bot posts one line there per ban and unban.
 5. With the reverse proxy above in place, set the application's **Interactions Endpoint URL**
