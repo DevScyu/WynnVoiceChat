@@ -43,7 +43,7 @@ class DiscordModerationTest {
 
     private val keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     private val publicKeyHex = HexFormat.of().formatHex(keys.public.encoded.takeLast(32).toByteArray())
-    private val config = DiscordConfig("token", publicKeyHex, "mod-role", "report-channel", "app", "guild")
+    private val config = DiscordConfig("token", publicKeyHex, "mod-role", "report-channel", "app", "guild", "mod-log")
 
     private var now = 1_000_000L
     private val moderation = testModeration("discord-moderation-test") { now }
@@ -370,5 +370,26 @@ class DiscordModerationTest {
         val report = NewReport(UUID.randomUUID(), UUID.randomUUID(), "", "", "", null, null, emptyList(), null, null)
         val future = failing.postReport(FiledReport(1, "A", "B", report, null, null))
         assertTrue(runCatching { future.join() }.isFailure)
+    }
+    @Test
+    fun `bans and unbans are audited in the table the history command and the mod log`() {
+        val bob = onVoice("Bob")
+        requests.clear()
+
+        handle(slash("ban", "player" to "Bob", "days" to 7, "reason" to "doxxing"))
+        now += 60_000
+        handle(slash("unban", "player" to "Bob"))
+
+        val row = transaction(moderation.db) { VoiceBansTable.selectAll().single() }
+        assertEquals(now, row[VoiceBansTable.liftedAt])
+        assertEquals("modbob", row[VoiceBansTable.liftedBy])
+
+        val history = content(handle(slash("history", "player" to "Bob")))
+        assertEquals("<t:${(now - 60_000) / 1000}:f> — Sharing personal information — until <t:${(now - 60_000 + 7 * 24 * 60 * 60_000L) / 1000}:f> — by modbob — lifted <t:${now / 1000}:f> by modbob", history)
+        val carol = onVoice("Carol")
+        assertEquals("Carol (`${carol.uuid}`) has never been banned.", content(handle(slash("history", "player" to "Carol"))))
+
+        val log = requests.filter { it.path == "/channels/mod-log/messages" }.map { JsonParser.parseString(String(it.body)).asJsonObject["content"].asString }
+        assertEquals(listOf("<@42> banned Bob (`${bob.uuid}`) for 7 days — Sharing personal information", "<@42> unbanned Bob (`${bob.uuid}`)"), log)
     }
 }

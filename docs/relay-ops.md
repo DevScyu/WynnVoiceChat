@@ -62,6 +62,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | `HTTP_PORT`                         | `9101`    | HTTP port serving only `POST /discord`, the Discord interactions endpoint |
 | `METRICS_BIND` / `METRICS_PORT`     | `127.0.0.1` / `9102` | Prometheus `GET /metrics`; `0` disables. No token, so keep it on loopback (or a private interface) and never behind the public proxy |
 | `DISCORD_APPLICATION_ID` / `DISCORD_GUILD_ID` | — | Application id and the server the `/voice` commands are registered in |
+| `DISCORD_MOD_LOG_CHANNEL_ID`        | —         | Optional: channel that gets one line per ban and unban |
 | `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
 | `DISCORD_PUBLIC_KEY`                | —         | Application public key every interaction is verified against |
 | `DISCORD_MOD_ROLE_ID`               | —         | Role allowed to use the buttons and `/voice` commands, re-checked on every interaction |

@@ -28,6 +28,7 @@ object VoiceBansTable : IntIdTable("voice_bans") {
     val bannedAt = long("banned_at")
     val expiresAt = long("expires_at").nullable()
     val liftedAt = long("lifted_at").nullable()
+    val liftedBy = text("lifted_by").nullable()
 }
 
 object VoiceReportsTable : IntIdTable("voice_reports") {

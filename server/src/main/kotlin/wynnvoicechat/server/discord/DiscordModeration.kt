@@ -30,6 +30,8 @@ data class DiscordConfig(
     val reportChannelId: String,
     val applicationId: String,
     val guildId: String,
+    /** Optional: every ban and unban is posted here as one line. */
+    val modLogChannelId: String? = null,
 ) {
     companion object {
         val VARIABLES = listOf(
@@ -40,7 +42,7 @@ data class DiscordConfig(
         /** null unless every variable is set. */
         fun fromEnv(): DiscordConfig? {
             val values = VARIABLES.map { System.getenv(it)?.takeIf { v -> v.isNotBlank() } ?: return null }
-            return DiscordConfig(values[0], values[1], values[2], values[3], values[4], values[5])
+            return DiscordConfig(values[0], values[1], values[2], values[3], values[4], values[5], System.getenv("DISCORD_MOD_LOG_CHANNEL_ID")?.takeIf { it.isNotBlank() })
         }
     }
 }
@@ -85,7 +87,7 @@ class DiscordModeration(
 
     private class Moderator(val id: String, val name: String)
 
-    enum class Kind { PING, BAN_BUTTON, BAN_MODAL, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, UNKNOWN }
+    enum class Kind { PING, BAN_BUTTON, BAN_MODAL, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, CMD_HISTORY, UNKNOWN }
     enum class Outcome { OK, BAD_SIGNATURE, UNAUTHORIZED, ERROR }
     enum class BanAction { BAN, UNBAN, DISMISS }
 
@@ -105,7 +107,7 @@ class DiscordModeration(
         }
     }
     enum class BanSource { BUTTON, COMMAND }
-    enum class Operation { POST_REPORT, REGISTER_COMMANDS }
+    enum class Operation { POST_REPORT, REGISTER_COMMANDS, MOD_LOG }
     enum class RequestOutcome { OK, ERROR }
 
     companion object {
@@ -201,6 +203,7 @@ class DiscordModeration(
                 "unban" -> Kind.CMD_UNBAN
                 "bans" -> Kind.CMD_BANS
                 "blocks" -> Kind.CMD_BLOCKS
+                "history" -> Kind.CMD_HISTORY
                 else -> Kind.UNKNOWN
             }
             else -> Kind.UNKNOWN
@@ -299,13 +302,14 @@ class DiscordModeration(
                 ephemeral("Banned $player ${duration(days)}." + if (actioned.isEmpty()) "" else " Actioned ${actioned.size} open report(s): ${actioned.joinToString { "#$it" }}.")
             }
             "unban" -> resolving(player) { uuid ->
-                val lifted = moderation.unban(uuid) > 0
+                val lifted = unban(uuid, moderator)
                 if (lifted) {
                     bans.getValue(BanAction.UNBAN).getValue(BanSource.COMMAND).increment()
                     logger.info("{} unbanned {}", moderator.name, player)
                 }
                 ephemeral(if (lifted) "Unbanned $player." else "$player is not banned.")
             }
+            "history" -> resolving(player) { uuid -> ephemeral(history(uuid)) }
             "bans" -> ephemeral(listing("No active bans.", moderation.activeBanRows().map { ban ->
                 val until = ban.expiresAt?.let { "until <t:${it / 1000}:f>" } ?: "permanent"
                 "${nameOf(ban.userId)} — $until — by ${ban.bannedBy}" + ban.reason.takeIf(String::isNotBlank)?.let { " — $it" }.orEmpty()
@@ -330,7 +334,30 @@ class DiscordModeration(
 
     private fun ban(target: UUID, days: Int, reason: String, moderator: Moderator) {
         moderation.ban(target, reason, moderator.name, if (days > 0) clock() + days * DAY_MS else null)
+        modLog("<@${moderator.id}> banned ${nameOf(target)} ${duration(days)} — $reason")
     }
+
+    private fun unban(target: UUID, moderator: Moderator): Boolean {
+        val lifted = moderation.unban(target, moderator.name) > 0
+        if (lifted) modLog("<@${moderator.id}> unbanned ${nameOf(target)}")
+        return lifted
+    }
+
+    /** One line per ban/unban to the mod-log channel, when configured; failures only count, moderation already happened. */
+    private fun modLog(line: String) {
+        val channel = config.modLogChannelId ?: return
+        rest.send("POST", "/channels/$channel/messages", "application/json", gson.toJson(mapOf("content" to line, "allowed_mentions" to mapOf("parse" to emptyList<String>()))).toByteArray())
+            .whenComplete { _, error ->
+                requests.getValue(Operation.MOD_LOG).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
+                if (error != null) logger.warn("Mod log post failed: {}", error.message)
+            }
+    }
+
+    private fun history(target: UUID): String = listing("${nameOf(target)} has never been banned.", moderation.banHistory(target).map { ban ->
+        val until = ban.expiresAt?.let { "until <t:${it / 1000}:f>" } ?: "permanent"
+        val lifted = ban.liftedAt?.let { " — lifted <t:${it / 1000}:f> by ${ban.liftedBy ?: "?"}" }.orEmpty()
+        "<t:${ban.bannedAt / 1000}:f> — ${ban.reason} — $until — by ${ban.bannedBy}$lifted"
+    })
 
     private fun duration(days: Int) = if (days > 0) "for $days days" else "permanently"
 
@@ -404,6 +431,7 @@ class DiscordModeration(
                     ),
                     sub("unban", "Lift a player's voice ban", player),
                     sub("bans", "List active voice bans"),
+                    sub("history", "Every ban a player has had, lifted ones included", player),
                     sub("blocks", "List who a player has blocked", player),
                 ),
             )

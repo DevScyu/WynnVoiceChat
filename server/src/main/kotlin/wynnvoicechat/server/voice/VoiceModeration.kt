@@ -41,12 +41,15 @@ data class NewReport(
 
 enum class Verdict { ACTIONED, DISMISSED }
 
-data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?)
+data class Ban(
+    val userId: UUID, val reason: String, val bannedBy: String, val expiresAt: Long?,
+    val bannedAt: Long = 0, val liftedAt: Long? = null, val liftedBy: String? = null,
+)
 
 class GuildMute(val guildId: UUID, val expiresAt: Long?)
 
 enum class DbOp {
-    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
+    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, BAN_HISTORY, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
     ATTACH_AUDIO, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS, PRUNE_BANS, PRUNE_REPORTS, REPORTS_WITH_CLIPS,
 }
 
@@ -67,7 +70,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     fun init() {
         db(DbOp.INIT) {
             SchemaUtils.create(VoiceBlocksTable, GuildMutesTable, VoiceBansTable, VoiceReportsTable, VoiceSessionsTable)
-            SchemaUtils.addMissingColumnsStatements(VoiceReportsTable).forEach { exec(it) }
+            SchemaUtils.addMissingColumnsStatements(VoiceReportsTable, VoiceBansTable).forEach { exec(it) }
         }
         blocks.clear()
         db(DbOp.INIT) { VoiceBlocksTable.selectAll().map { it[VoiceBlocksTable.blocker] to it[VoiceBlocksTable.blocked] } }
@@ -154,10 +157,21 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     }
 
     /** Lifts every active ban of the player; returns how many were lifted. */
-    fun unban(userId: UUID): Int {
+    fun unban(userId: UUID, liftedBy: String): Int {
         val now = clock()
         return db(DbOp.UNBAN) {
-            VoiceBansTable.update({ (VoiceBansTable.userId eq userId) and VoiceBansTable.liftedAt.isNull() }) { it[liftedAt] = now }
+            VoiceBansTable.update({ (VoiceBansTable.userId eq userId) and VoiceBansTable.liftedAt.isNull() }) {
+                it[liftedAt] = now
+                it[VoiceBansTable.liftedBy] = liftedBy
+            }
+        }
+    }
+
+    /** Every ban ever recorded for [userId], oldest first, lifted and expired ones included: the audit trail. */
+    fun banHistory(userId: UUID): List<Ban> = db(DbOp.BAN_HISTORY) {
+        VoiceBansTable.selectAll().where { VoiceBansTable.userId eq userId }.orderBy(VoiceBansTable.bannedAt).map {
+            Ban(it[VoiceBansTable.userId], it[VoiceBansTable.reason], it[VoiceBansTable.bannedBy], it[VoiceBansTable.expiresAt],
+                it[VoiceBansTable.bannedAt], it[VoiceBansTable.liftedAt], it[VoiceBansTable.liftedBy])
         }
     }
 
