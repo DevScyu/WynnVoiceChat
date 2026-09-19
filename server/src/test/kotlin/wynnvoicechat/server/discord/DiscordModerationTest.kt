@@ -175,9 +175,15 @@ class DiscordModerationTest {
         assertFalse(body["invitable"].asBoolean)
         assertTrue(body["name"].asString.contains("modbob"))
         assertEquals(1, requests.count { it.method == "PUT" && it.path == "/channels/777/thread-members/42" })
-        val first = requests.single { it.method == "POST" && it.path == "/channels/777/messages" }
-        assertTrue(JsonParser.parseString(String(first.body)).asJsonObject["content"].asString.startsWith("<@42>"))
+        val first = JsonParser.parseString(String(requests.single { it.method == "POST" && it.path == "/channels/777/messages" }.body)).asJsonObject
+        assertTrue(first["content"].asString.startsWith("<@42>"))
+        assertTrue(first["content"].asString.contains("<@&mod-role>"), "the role mention is what adds and pings the moderators")
+        assertEquals(listOf("mod-role"), first.getAsJsonObject("allowed_mentions").getAsJsonArray("roles").map { it.asString })
         assertEquals(ok + 1, sample("voice_discord_interactions_total{kind=\"appeal_button\",outcome=\"ok\"}"))
+
+        val again = handle("""{"type":3,"channel_id":"appeals",${member()},"data":{"custom_id":"appeal","component_type":2}}""")
+        assertTrue(content(again).contains("<#777>"))
+        assertEquals(1, requests.count { it.path == "/channels/appeals/threads" }, "one open appeal per user, however often they press the button")
     }
 
     // --- buttons ---

@@ -14,6 +14,7 @@ import java.security.spec.X509EncodedKeySpec
 import java.util.HexFormat
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
@@ -84,6 +85,8 @@ class DiscordModeration(
     private val gson = Gson()
     private val verifier = InteractionVerifier(config.publicKey)
     private var server: HttpServer? = null
+    /** user id → open appeal thread; forgotten after the thread's auto-archive window so a second appeal is possible later */
+    private val appealThreads = ConcurrentHashMap<String, Pair<String, Long>>()
 
     private class Moderator(val id: String, val name: String)
 
@@ -125,6 +128,7 @@ class DiscordModeration(
         private const val MODAL = 9
         private const val STRING_SELECT = 3
         private const val PRIVATE_THREAD = 12
+        private const val APPEAL_ARCHIVE_MINUTES = 10080
         private const val LABEL = 18
         private const val EPHEMERAL = 64
         private const val ACTION_ROW = 1
@@ -264,16 +268,20 @@ class DiscordModeration(
     /** A private thread in the appeals channel with only the clicker in it, plus the first message telling them what to write. */
     private fun appeal(channelId: String, user: JsonObject): Map<String, Any?> {
         val userId = user["id"].asString
+        val now = clock()
+        appealThreads[userId]?.takeIf { it.second > now }?.let { return ephemeral("Your appeal thread is already open: <#${it.first}>") }
         val name = user["global_name"]?.takeIf { it.isJsonPrimitive }?.asString ?: user["username"].asString
         // ponytail: three sequential REST calls inside Discord's 3 s budget, like resolving(); defer if it ever times out
         val thread = gson.fromJson(rest.send("POST", "/channels/$channelId/threads", "application/json", gson.toJson(mapOf(
-            "name" to "Appeal — $name".take(100), "type" to PRIVATE_THREAD, "invitable" to false, "auto_archive_duration" to 10080,
+            "name" to "Appeal — $name".take(100), "type" to PRIVATE_THREAD, "invitable" to false, "auto_archive_duration" to APPEAL_ARCHIVE_MINUTES,
         )).toByteArray()).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS), JsonObject::class.java)["id"].asString
         rest.send("PUT", "/channels/$thread/thread-members/$userId", "application/json", ByteArray(0)).get(LOOKUP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        // Mentioning the role is what pulls the moderators into a private thread
         rest.send("POST", "/channels/$thread/messages", "application/json", gson.toJson(mapOf(
-            "content" to "<@$userId>, only you and the moderators can see this thread. Please tell us:\n- which Minecraft account was banned\n- roughly when\n- why you think the decision was wrong\n\nA moderator who did not make the original decision will answer here, normally within a week.",
-            "allowed_mentions" to mapOf("users" to listOf(userId)),
+            "content" to "<@$userId>, only you and the moderators (<@&${config.modRoleId}>) can see this thread. Please tell us:\n- which Minecraft account was banned\n- roughly when\n- why you think the decision was wrong\n\nA moderator who did not make the original decision will answer here, normally within a week.",
+            "allowed_mentions" to mapOf("users" to listOf(userId), "roles" to listOf(config.modRoleId)),
         )).toByteArray())
+        appealThreads[userId] = thread to now + APPEAL_ARCHIVE_MINUTES * 60_000L
         logger.info("Appeal thread {} opened", thread)
         return ephemeral("Your appeal thread is open: <#$thread>")
     }
