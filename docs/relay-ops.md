@@ -61,6 +61,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | `DB_PATH`                           | `voice.db` | SQLite file holding blocks, bans and reports; created on startup |
 | `HTTP_PORT`                         | `9101`    | HTTP port serving only `POST /discord`, the Discord interactions endpoint |
 | `METRICS_BIND` / `METRICS_PORT`     | `127.0.0.1` / `9102` | Prometheus `GET /metrics`; `0` disables. No token, so keep it on loopback (or a private interface) and never behind the public proxy |
+| `METRICS_PUSH_URL` / `METRICS_PUSH_TOKEN` / `METRICS_PUSH_STEP` | — / — / `30` | Also push the same meters over OTLP/HTTP every `STEP` seconds with `Authorization: Bearer <token>`; use this where the host has no private network (Pterodactyl) |
 | `DISCORD_APPLICATION_ID` / `DISCORD_GUILD_ID` | — | Application id and the server the `/voice` commands are registered in |
 | `DISCORD_MOD_LOG_CHANNEL_ID`        | —         | Optional: channel that gets one line per ban and unban |
 | `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
@@ -96,8 +97,8 @@ Ed25519 signature and nothing else needs to be reachable over HTTP.
 
 `/metrics` exposes sessions, auth, control and UDP traffic, routing outcomes, upstream APIs,
 Discord, moderation, SQLite timings and the JVM in Prometheus text format, all prefixed `voice_`.
-No label ever carries a player identity; world names are whitelisted to `WC<n>` and anything else
-is `other`. A Prometheus on the same host scrapes it with:
+No label ever carries a player identity; world names are whitelisted to two letters plus a number (`WC12`, `EU3`)
+and anything else is `other`. A Prometheus on the same host scrapes it with:
 
 ```yaml
 scrape_configs:
@@ -106,6 +107,10 @@ scrape_configs:
     static_configs:
       - targets: ["127.0.0.1:9102"]
 ```
+
+Without a private network, set `METRICS_PUSH_URL` to a Prometheus started with
+`--web.enable-otlp-receiver` (its `/api/v1/otlp/v1/metrics`) behind a reverse proxy that checks the
+bearer token; the relay then needs no reachable metrics port at all.
 
 Unique-player questions (daily/weekly actives, retention) come from the `voice_sessions` table
 in `DB_PATH` instead, e.g. with Grafana's SQLite datasource:
@@ -130,7 +135,9 @@ once-a-minute pass deletes a report's audio clips 30 days after the report, a te
    the *Send Messages* and *Attach Files* permissions.
 4. In your server enable Developer Mode, copy the server id into `DISCORD_GUILD_ID`, the
    moderator role id into `DISCORD_MOD_ROLE_ID` and the private report channel id into
-   `DISCORD_REPORT_CHANNEL_ID`; give the bot access to that channel.
+   `DISCORD_REPORT_CHANNEL_ID`; give the bot access to that channel. Make the moderator role
+   *mentionable*: every report pings it. Optionally create a read-only channel for
+   `DISCORD_MOD_LOG_CHANNEL_ID`; the bot posts one line there per ban and unban.
 5. With the reverse proxy above in place, set the application's **Interactions Endpoint URL**
    (General Information) to `https://<your host>/discord`. Discord verifies the URL by sending a
    signed ping, so the relay must already be running with the variables above.
@@ -139,7 +146,10 @@ once-a-minute pass deletes a report's audio clips 30 days after the report, a te
    application → `/voice`. The relay refuses anyone without `DISCORD_MOD_ROLE_ID` regardless.
 
 Each report then appears in the channel as an embed with both audio files and `Ban 7d`,
-`Ban 30d`, `Ban permanent` and `Dismiss` buttons; `/voice ban <player> [days] [reason]`,
-`/voice unban <player>`, `/voice bans` and `/voice blocks <player>` cover the rest. A ban drops
-the player's live session within a minute and refuses their next connection with `BANNED`; both
-tell the player the ban reason, as the terms promise.
+`Ban 30d`, `Ban permanent` and `Dismiss` buttons. A ban button opens a modal asking which
+community rule was broken (the list is `BanReason` in the relay and mirrors the rules page);
+`/voice ban <player> <reason> [days]` offers the same list. `/voice unban <player>`,
+`/voice bans`, `/voice history <player>` (every ban a player has had, who lifted it and when) and
+`/voice blocks <player>` cover the rest. A ban drops the player's live session at once and
+refuses their next connection with `BANNED`; both tell the player the rule, as the terms promise.
+Bans are never deleted on unban (`lifted_at`/`lifted_by` are set), so the table is the audit log.
