@@ -96,6 +96,8 @@ class ControlHandler(
         }
         stage = Stage.VERIFYING
         sessions.hasJoined(auth.username, HexFormat.of().formatHex(serverId)).whenCompleteAsync({ verified, error ->
+            // The close listener has already done this connection's bookkeeping
+            if (!ctx.channel().isActive) return@whenCompleteAsync
             // ponytail: one indexed SQLite read per login on the event loop; move onto the fetcher's thread if logins pile up
             val ban = if (error == null && verified == auth.uuid) voice.moderation.activeBan(auth.uuid) else null
             when {

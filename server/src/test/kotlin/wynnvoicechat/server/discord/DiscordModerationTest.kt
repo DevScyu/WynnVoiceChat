@@ -140,6 +140,8 @@ class DiscordModerationTest {
         assertEquals(401, post("X-Signature-Ed25519", sign("124", body.toByteArray()), "X-Signature-Timestamp", "123").statusCode())
         val get = http.send(HttpRequest.newBuilder(URI("http://127.0.0.1:${discord.boundPort}/discord")).GET().build(), HttpResponse.BodyHandlers.ofString())
         assertEquals(405, get.statusCode())
+        val huge = HttpRequest.newBuilder(URI("http://127.0.0.1:${discord.boundPort}/discord")).POST(HttpRequest.BodyPublishers.ofByteArray(ByteArray(DiscordModeration.MAX_BODY_BYTES + 1))).build()
+        assertEquals(413, http.send(huge, HttpResponse.BodyHandlers.ofString()).statusCode(), "refused before the body is read")
     }
 
     // --- authorisation ---

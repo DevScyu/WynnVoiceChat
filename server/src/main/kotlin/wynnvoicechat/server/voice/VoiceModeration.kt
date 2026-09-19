@@ -302,6 +302,7 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
     companion object {
         private val DB_TIMERS = DbOp.entries.associateWith { Metrics.registry.sloTimer("voice_db_seconds", Metrics.DB_SLO, "op", it.name.lowercase()) }
 
-        fun openSqlite(path: String): Database = Database.connect("jdbc:sqlite:$path")
+        /** WAL: joins, leaves and reports write from several event loops while auth reads; a rollback journal would block those reads. */
+        fun openSqlite(path: String): Database = Database.connect("jdbc:sqlite:$path?journal_mode=WAL")
     }
 }

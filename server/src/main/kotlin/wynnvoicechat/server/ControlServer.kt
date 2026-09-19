@@ -18,6 +18,7 @@ import io.netty.handler.timeout.ReadTimeoutHandler
 import io.netty.util.concurrent.DefaultThreadFactory
 import org.slf4j.LoggerFactory
 import java.net.InetSocketAddress
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import wynnvoicechat.protocol.Packet
 import wynnvoicechat.protocol.VoicePipeline
@@ -51,6 +52,7 @@ class ControlServer(
                 override fun initChannel(ch: SocketChannel) = accept(ch)
             })
             .bind(host, port).sync().channel()
+        bossGroup.scheduleAtFixedRate(rateLimiter::cleanup, 1, 1, TimeUnit.MINUTES)
         log.info("Control server listening on {}", channel.localAddress())
     }
 

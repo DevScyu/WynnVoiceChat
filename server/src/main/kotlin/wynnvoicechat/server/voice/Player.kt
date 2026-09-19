@@ -11,7 +11,6 @@ import wynnvoicechat.protocol.SocialKind
  */
 class Player(val uuid: UUID, val name: String, val modVersion: String = "other", val send: (Packet) -> Unit) {
     @Volatile var world: String? = null
-    /** Set when Wynncraft contradicted [world]; refuses the next join until a new world is claimed. */
     @Volatile var position: Position? = null
     @Volatile var party: Set<String> = emptySet()
     @Volatile var friends: Set<String> = emptySet()
@@ -27,13 +26,18 @@ class Player(val uuid: UUID, val name: String, val modVersion: String = "other",
             SocialKind.FRIENDS -> friends
         }
         val next = when (social.action) {
-            SocialAction.SET -> social.names.toSet()
-            SocialAction.ADD -> current + social.names
+            SocialAction.SET -> social.names.take(MAX_NAMES).toSet()
+            SocialAction.ADD -> (current + social.names).take(MAX_NAMES).toSet()
             SocialAction.REMOVE -> current - social.names.toSet()
         }
         when (social.kind) {
             SocialKind.PARTY -> party = next
             SocialKind.FRIENDS -> friends = next
         }
+    }
+
+    companion object {
+        /** Wynncraft lists are far smaller; this only stops a client growing ours without bound. */
+        const val MAX_NAMES = 1000
     }
 }

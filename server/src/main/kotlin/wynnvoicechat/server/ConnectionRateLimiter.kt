@@ -16,34 +16,38 @@ class ConnectionRateLimiter(
 
     fun tryAcquire(ip: String, currentHandshaking: Int): Boolean = refusal(ip, currentHandshaking) == null
 
-    /** Takes a slot and returns null, or names the limit that refused it. */
+    /** Takes a slot and returns null, or names the limit that refused it. All state changes run inside the map's own per-key lock. */
     fun refusal(ip: String, currentHandshaking: Int): Limit? {
         if (currentHandshaking >= maxHandshaking) return Limit.HANDSHAKING
-        val state = ipStates.computeIfAbsent(ip) { IpState(0, maxPerMinutePerIp, clock()) }
-        synchronized(state) {
+        var limit: Limit? = null
+        ipStates.compute(ip) { _, existing ->
             val now = clock()
+            val state = existing ?: IpState(0, maxPerMinutePerIp, now)
             val refill = ((now - state.lastRefillMs) * maxPerMinutePerIp / 60_000.0).toInt()
             if (refill > 0) {
                 state.tokens = minOf(maxPerMinutePerIp, state.tokens + refill)
                 state.lastRefillMs = now
             }
-            if (state.concurrent >= maxConcurrentPerIp) return Limit.CONCURRENT_PER_IP
-            if (state.tokens <= 0) return Limit.PER_MINUTE_PER_IP
-            state.tokens--
-            state.concurrent++
-            return null
+            limit = when {
+                state.concurrent >= maxConcurrentPerIp -> Limit.CONCURRENT_PER_IP
+                state.tokens <= 0 -> Limit.PER_MINUTE_PER_IP
+                else -> {
+                    state.tokens--
+                    state.concurrent++
+                    null
+                }
+            }
+            state
         }
+        return limit
     }
 
     fun release(ip: String) {
-        val state = ipStates[ip] ?: return
-        synchronized(state) { state.concurrent = maxOf(0, state.concurrent - 1) }
+        ipStates.computeIfPresent(ip) { _, state -> state.also { it.concurrent = maxOf(0, it.concurrent - 1) } }
     }
 
     fun cleanup() {
         val now = clock()
-        ipStates.entries.removeIf { (_, state) ->
-            synchronized(state) { state.concurrent == 0 && now - state.lastRefillMs >= 60_000 }
-        }
+        for (ip in ipStates.keys) ipStates.computeIfPresent(ip) { _, state -> state.takeUnless { it.concurrent == 0 && now - it.lastRefillMs >= 60_000 } }
     }
 }

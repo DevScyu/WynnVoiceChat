@@ -13,6 +13,8 @@ private fun env(name: String, default: String): String = System.getenv(name)?.ta
 
 fun main() {
     val log = LoggerFactory.getLogger("wynnvoicechat")
+    // Before the first HttpServer (metrics or Discord) loads the JDK server config
+    System.setProperty("sun.net.httpserver.maxReqTime", "10")
     val voiceConfig = VoiceConfig.fromEnv()
     val moderation = VoiceModeration(VoiceModeration.openSqlite(env("DB_PATH", "voice.db"))).also { it.init() }
     val api = HttpApiFetcher()

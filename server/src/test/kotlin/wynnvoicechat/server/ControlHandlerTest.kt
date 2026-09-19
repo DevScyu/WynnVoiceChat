@@ -194,6 +194,20 @@ class ControlHandlerTest {
     }
 
     @Test
+    fun `a connection closed during verification never authenticates`() {
+        val pending = CompletableFuture<UUID?>()
+        handler = ControlHandler({ _, _ -> pending }, guilds, voice) { authenticated = it }
+        val ch = EmbeddedChannel(handler)
+        ch.hello()
+        ch.writeInbound(Packet.Auth("Player", uuid))
+        ch.close()
+        pending.complete(uuid)
+        ch.runPendingTasks()
+        assertNull(authenticated, "the handshaking gauge would otherwise be decremented twice")
+        assertFalse(handler.authenticated)
+    }
+
+    @Test
     fun `pending report outcomes follow the auth result`() {
         val id = moderation.createReport(NewReport(uuid, UUID.randomUUID(), "", "", "", null, null, emptyList(), null, null))
         moderation.markHandled(id, "modbob", Verdict.ACTIONED)

@@ -522,10 +522,19 @@ class VoiceManagerTest {
         assertNull(manager.sessionOf(b.uuid))
         assertTrue(sentTo(a).none { it is Packet.Ended })
         repeat(101) { manager.onDatagram(addrB, clientDatagram(b, secretB, SvcPacket.KeepAlive)) }
-        val again = connect(b, addrB)
-        transport.clear()
-        manager.onDatagram(addrB, clientDatagram(b, again, SvcPacket.Ping(UUID.randomUUID(), 1)))
-        assertEquals(1, transport.sent.size, "a banned client's trailing datagrams are not abuse")
+        assertEquals(0.0, sample("voice_udp_ignored_ips_total"), "a banned client's trailing datagrams are not abuse")
+    }
+
+    @Test
+    fun `join while banned is refused without a session`() {
+        val b = player("B")
+        transaction(moderation.db) { VoiceBansTable.insert { it[userId] = b.uuid; it[reason] = "slurs"; it[bannedBy] = "s"; it[bannedAt] = now } }
+
+        manager.join(b, 20, VoiceTier.EVERYONE, "")
+
+        assertEquals(EndReason.BANNED, last<Packet.Ended>(b).reason)
+        assertTrue(sentTo(b).none { it is Packet.Secret })
+        assertNull(manager.sessionOf(b.uuid))
     }
 
     @Test
@@ -569,6 +578,39 @@ class VoiceManagerTest {
         assertFalse(last<Packet.Result>(a).ok)
         manager.block(a, "bad name!", blocked = true)
         assertFalse(last<Packet.Result>(a).ok)
+    }
+
+    @Test
+    fun `mojang lookups for blocks are capped per player while live names stay free`() {
+        val a = player("A")
+        val b = player("B")
+        connect(a, addrA)
+        connect(b, addrB)
+        repeat(VoiceManager.LOOKUPS_PER_MINUTE) { manager.block(a, "Nobody$it", blocked = true) }
+        assertEquals("Unknown player Nobody0", sentTo(a).filterIsInstance<Packet.Result>().first().message)
+
+        manager.block(a, "NobodyMore", blocked = true)
+        assertEquals("Too many lookups, try again later", last<Packet.Result>(a).message)
+        manager.block(a, "B", blocked = true)
+        assertTrue(last<Packet.Result>(a).ok, "a name on voice needs no lookup")
+        manager.block(b, "NobodyElse", blocked = true)
+        assertEquals("Unknown player NobodyElse", last<Packet.Result>(b).message, "the cap is per player")
+        now += 60_000
+        manager.block(a, "NobodyLater", blocked = true)
+        assertEquals("Unknown player NobodyLater", last<Packet.Result>(a).message)
+    }
+
+    @Test
+    fun `party and friend lists are capped so a client cannot grow them without bound`() {
+        val a = player("A")
+        val names = (1..Player.MAX_NAMES).map { "F$it" }
+        manager.social(a, Packet.Social(SocialKind.FRIENDS, SocialAction.SET, names))
+        assertEquals(Player.MAX_NAMES, a.friends.size)
+        manager.social(a, Packet.Social(SocialKind.FRIENDS, SocialAction.ADD, listOf("OneMore")))
+        assertEquals(Player.MAX_NAMES, a.friends.size)
+        assertFalse("OneMore" in a.friends)
+        manager.social(a, Packet.Social(SocialKind.FRIENDS, SocialAction.SET, names + "OneMore"))
+        assertEquals(Player.MAX_NAMES, a.friends.size, "an oversized SET keeps the first names")
     }
 
     @Test

@@ -29,6 +29,12 @@ class VoiceModerationTest {
     }
 
     @Test
+    fun `the database runs in wal mode so a writer never stalls the event loops reading it`() {
+        val mode = transaction(db) { exec("PRAGMA journal_mode") { it.next(); it.getString(1) } }
+        assertEquals("wal", mode)
+    }
+
+    @Test
     fun `blocks are symmetric and persisted`() {
         assertFalse(moderation.isBlocked(alice, bob))
 

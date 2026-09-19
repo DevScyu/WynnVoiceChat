@@ -134,6 +134,8 @@ class DiscordModeration(
         private const val STRING = 3
         private const val INTEGER = 4
         private const val DAY_MS = 24 * 60 * 60_000L
+        /** Interactions are a few KB; anything larger is not Discord. */
+        const val MAX_BODY_BYTES = 64 * 1024
         private const val LOOKUP_TIMEOUT_MS = 2_500L
     }
 
@@ -141,8 +143,10 @@ class DiscordModeration(
 
     fun start(port: Int) {
         registerCommands()
+        // Read once per JVM by the JDK server: a client that stalls mid-body otherwise holds a pool thread forever
+        System.setProperty("sun.net.httpserver.maxReqTime", "10")
         server = HttpServer.create(InetSocketAddress(port), 0).apply {
-            executor = Executors.newCachedThreadPool { r -> Thread(r, "discord-http").apply { isDaemon = true } }
+            executor = Executors.newFixedThreadPool(4) { r -> Thread(r, "discord-http").apply { isDaemon = true } }
             createContext("/discord", ::serve)
             start()
         }
@@ -155,15 +159,20 @@ class DiscordModeration(
     }
 
     private fun serve(exchange: HttpExchange) = exchange.use {
-        val body = it.requestBody.readAllBytes()
         val headers = it.requestHeaders
+        val length = headers.getFirst("Content-Length")?.toLongOrNull() ?: 0
         val (status, response) = when {
             it.requestMethod != "POST" -> 405 to ""
-            !verifier.verify(headers.getFirst("X-Signature-Ed25519"), headers.getFirst("X-Signature-Timestamp"), body) -> {
-                interactions.getValue(Kind.UNKNOWN).getValue(Outcome.BAD_SIGNATURE).increment()
-                401 to ""
+            length > MAX_BODY_BYTES -> 413 to ""
+            else -> {
+                val body = it.requestBody.readNBytes(MAX_BODY_BYTES + 1)
+                if (body.size > MAX_BODY_BYTES) 413 to ""
+                else if (verifier.verify(headers.getFirst("X-Signature-Ed25519"), headers.getFirst("X-Signature-Timestamp"), body)) 200 to handle(String(body))
+                else {
+                    interactions.getValue(Kind.UNKNOWN).getValue(Outcome.BAD_SIGNATURE).increment()
+                    401 to ""
+                }
             }
-            else -> 200 to handle(String(body))
         }
         val bytes = response.toByteArray()
         it.responseHeaders.add("Content-Type", "application/json")

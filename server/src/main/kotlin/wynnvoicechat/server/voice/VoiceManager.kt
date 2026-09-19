@@ -56,6 +56,7 @@ enum class GuildMuteAction { MUTE, UNMUTE }
 enum class CallOutcome { INVITED, REFUSED, BUSY, DND, ACCEPTED, DECLINED, NO_ANSWER, ENDED }
 
 private class Invite(val caller: Player, val target: Player, val expiresAt: Long)
+private class LookupsExceeded : Exception("Too many lookups, try again later")
 
 /**
  * Relay brain: SVC session protocol over UDP, routing, ring buffers, peers sync, blocks and reports.
@@ -81,6 +82,8 @@ class VoiceManager(
 
     private val reportMinuteLimiters = ConcurrentHashMap<UUID, RateLimiter>()
     private val reportDayLimiters = ConcurrentHashMap<UUID, RateLimiter>()
+    /** Mojang's profile quota is per relay, so one client must not be able to spend it on made-up names. */
+    private val lookupLimiters = ConcurrentHashMap<UUID, RateLimiter>()
 
     private val unauthFailures = ConcurrentHashMap<String, RateLimiter>()
     private val ignoredIpsUntil = ConcurrentHashMap<String, Long>()
@@ -131,6 +134,7 @@ class VoiceManager(
 
     companion object {
         const val REPORT_WINDOW_MS = 120_000L
+        const val LOOKUPS_PER_MINUTE = 10
         private const val MAX_REASON_LENGTH = 500
         private const val PROFILE_URL = "https://api.mojang.com/users/profiles/minecraft/"
         private const val SESSION_PROFILE_URL = "https://sessionserver.mojang.com/session/minecraft/profile/"
@@ -185,6 +189,8 @@ class VoiceManager(
             player.send(Packet.Ended(EndReason.UNSUPPORTED_SVC_VERSION, "Update Simple Voice Chat to 2.6.x"))
             return
         }
+        // Auth already refused a banned player; this catches a ban issued while they were connected
+        moderation.activeBan(player.uuid)?.let { return refuseBanned(player, it) }
         val now = clock()
         val effectiveTier = clamp(tier)
         // ponytail: one SQLite insert per join on the TCP event loop, as the report path does; offload if joins pile up
@@ -245,8 +251,9 @@ class VoiceManager(
 
     fun block(player: Player, targetName: String, blocked: Boolean) {
         val kind = if (blocked) ResultKind.BLOCK else ResultKind.UNBLOCK
-        resolveUuid(targetName).whenComplete { target, error ->
+        resolveUuidFor(player, targetName).whenComplete { target, error ->
             when {
+                error is LookupsExceeded -> player.send(Packet.Result(kind, false, error.message))
                 error != null -> {
                     logger.warn("Profile lookup for {} failed: {}", targetName, error.message)
                     player.send(Packet.Result(kind, false, "Could not look up $targetName, try again later"))
@@ -270,8 +277,9 @@ class VoiceManager(
         if (player.guildRank !in MUTING_RANKS) return fail("Only the guild owner and chiefs can mute")
         val member = player.guildMembers.firstOrNull { it.equals(targetName, ignoreCase = true) } ?: return fail("$targetName is not in your guild")
         if (player.guildRank != OWNER && player.guildRanks[member] in MUTING_RANKS) return fail("Only the guild owner can mute a chief")
-        resolveUuid(member).whenComplete { target, error ->
+        resolveUuidFor(player, member).whenComplete { target, error ->
             when {
+                error is LookupsExceeded -> fail(error.message!!)
                 error != null -> {
                     logger.warn("Profile lookup for {} failed: {}", member, error.message)
                     fail("Could not look up $member, try again later")
@@ -460,6 +468,13 @@ class VoiceManager(
         if (!USERNAME.matches(name)) return CompletableFuture.completedFuture(null)
         sessionNamed(name)?.let { return CompletableFuture.completedFuture(it.player.uuid) }
         return mojang.get(URI(PROFILE_URL + name)).thenApply { it?.let(MojangSessionFetcher::parseProfileId) }
+    }
+
+    /** [resolveUuid] where a name not on voice costs [player] one of [LOOKUPS_PER_MINUTE] Mojang calls. */
+    private fun resolveUuidFor(player: Player, name: String): CompletableFuture<UUID?> {
+        if (!USERNAME.matches(name) || sessionNamed(name) != null) return resolveUuid(name)
+        val limiter = lookupLimiters.computeIfAbsent(player.uuid) { RateLimiter(LOOKUPS_PER_MINUTE, 60_000) }
+        return if (limiter.tryAcquire(clock())) resolveUuid(name) else CompletableFuture.failedFuture(LookupsExceeded())
     }
 
     // --- UDP side ---
@@ -664,8 +679,11 @@ class VoiceManager(
     private fun enforce(ban: Ban, now: Long) {
         val session = sessions.remove(ban.userId) ?: return
         end(session, SessionEnd.BANNED, now)
-        session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
+        refuseBanned(session.player, ban)
     }
+
+    private fun refuseBanned(player: Player, ban: Ban) =
+        player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
 
     fun maintain() {
         val now = clock()
