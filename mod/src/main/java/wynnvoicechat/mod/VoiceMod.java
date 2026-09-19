@@ -55,6 +55,10 @@ public final class VoiceMod implements ClientModInitializer {
     public static final String COMMAND = "/" + MOD_ID;
     public static final String ALIAS = "wvc";
     public static final String SITE = "https://wynnvoicechat.com/";
+    /** Fixed on purpose: every player goes through the moderated relay. -Dwynnvoicechat.relay=host:port is for local testing only. */
+    private static final String RELAY = System.getProperty("wynnvoicechat.relay", "relay.wynnvoicechat.com:25587");
+    private static final String RELAY_HOST = RELAY.substring(0, RELAY.lastIndexOf(':'));
+    private static final int RELAY_PORT = Integer.parseInt(RELAY.substring(RELAY.lastIndexOf(':') + 1));
     private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
     private static final int TICKS_PER_POSITION = 5; // 4 Hz
     private static final long RECONNECT_MS = 30_000;
@@ -386,7 +390,7 @@ public final class VoiceMod implements ClientModInitializer {
         session = newSession;
         connectedWorld = state.world();
         lastConnectAttempt = System.currentTimeMillis();
-        client.connect(config.relayHost, config.relayPort);
+        client.connect(RELAY_HOST, RELAY_PORT);
     }
 
     private void refuse(AuthStatus status, String message) {

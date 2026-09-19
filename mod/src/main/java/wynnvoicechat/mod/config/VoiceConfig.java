@@ -20,8 +20,6 @@ public final class VoiceConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Logger LOG = LoggerFactory.getLogger("wynnvoicechat");
 
-    public String relayHost = "relay.wynnvoicechat.com";
-    public int relayPort = 9100;
     public boolean enabled = true;
     public VoiceTier tier = VoiceTier.PARTY;
     public int consentVersion;

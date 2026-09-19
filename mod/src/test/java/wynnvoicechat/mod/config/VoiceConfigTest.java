@@ -96,12 +96,10 @@ class VoiceConfigTest {
     @Test
     void savesEveryFieldAndKeepsDefaultsForMissingOnes(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("wynnvoicechat.json");
-        Files.writeString(file, "{\"relayHost\":\"relay.example\",\"tier\":\"EVERYONE\"}");
+        Files.writeString(file, "{\"tier\":\"EVERYONE\"}");
         VoiceConfig loaded = VoiceConfig.load(file);
-        assertEquals("relay.wynnvoicechat.com", new VoiceConfig().relayHost);
         assertTrue(loaded.enabled);
         assertEquals(0, loaded.consentVersion);
-        assertEquals("relay.example", loaded.relayHost);
         assertTrue(loaded.blockAlsoIgnores);
         assertFalse(loaded.guildChannel);
         assertFalse(loaded.guildWarningAccepted);
@@ -121,6 +119,5 @@ class VoiceConfigTest {
         assertFalse(reloaded.blockAlsoIgnores);
         assertTrue(reloaded.guildChannel);
         assertTrue(reloaded.guildWarningAccepted);
-        assertEquals(9100, reloaded.relayPort);
     }
 }
