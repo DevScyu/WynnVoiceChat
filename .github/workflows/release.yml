@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   modrinth:
     runs-on: ubuntu-latest
@@ -18,6 +21,7 @@ jobs:
       - uses: Kira-NT/mc-publish@v3
         with:
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           files: mod/build/libs/wynnvoicechat-*.jar
           name: WynnVoiceChat ${{ github.ref_name }}
           version: ${{ github.ref_name }}
