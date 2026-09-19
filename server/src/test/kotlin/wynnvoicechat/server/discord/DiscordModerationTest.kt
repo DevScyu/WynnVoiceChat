@@ -77,6 +77,9 @@ class DiscordModerationTest {
     private fun button(customId: String, vararg roles: String = arrayOf("mod-role")) =
         """{"type":3,${member(*roles)},"data":{"custom_id":"$customId","component_type":2}}"""
 
+    private fun banModal(customId: String, reason: String, vararg roles: String = arrayOf("mod-role")) =
+        """{"type":5,${member(*roles)},"data":{"custom_id":"$customId","components":[{"type":18,"component":{"type":3,"custom_id":"reason","values":["$reason"]}}]}}"""
+
     private fun slash(sub: String, vararg args: Pair<String, Any>, roles: Array<String> = arrayOf("mod-role")): String {
         val options = args.joinToString(",") { (name, value) ->
             val json = if (value is String) "\"$value\"" else value.toString()
@@ -171,18 +174,23 @@ class DiscordModerationTest {
         val buttonBans = sample("voice_bans_total{action=\"ban\",source=\"button\"}")
         val banButtons = sample("voice_discord_interactions_total{kind=\"ban_button\",outcome=\"ok\"}")
 
-        val response = handle(button("ban:7:$id"))
+        val modal = handle(button("ban:7:$id"))
+        assertEquals(9, modal["type"].asInt)
+        assertEquals("ban:7:$id", modal.getAsJsonObject("data")["custom_id"].asString)
+        assertEquals(banButtons + 1, sample("voice_discord_interactions_total{kind=\"ban_button\",outcome=\"ok\"}"))
+        assertFalse(moderation.isBanned(target.uuid))
+
+        val response = handle(banModal("ban:7:$id", "hate"))
 
         assertEquals(buttonBans + 1, sample("voice_bans_total{action=\"ban\",source=\"button\"}"))
-        assertEquals(banButtons + 1, sample("voice_discord_interactions_total{kind=\"ban_button\",outcome=\"ok\"}"))
         assertEquals(7, response["type"].asInt)
-        assertEquals("Banned for 7 days by <@42>", content(response))
+        assertEquals("Banned for 7 days by <@42> — Hate speech", content(response))
         assertEquals(0, response.getAsJsonObject("data").getAsJsonArray("components").size())
         assertTrue(moderation.isBanned(target.uuid))
         val ban = transaction(moderation.db) { VoiceBansTable.selectAll().single() }
         assertEquals(now + 7 * 24 * 60 * 60_000L, ban[VoiceBansTable.expiresAt])
         assertEquals("modbob", ban[VoiceBansTable.bannedBy])
-        assertEquals("Report #$id", ban[VoiceBansTable.reason])
+        assertEquals("Hate speech", ban[VoiceBansTable.reason])
         val report = transaction(moderation.db) { VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq id }.single() }
         assertTrue(report[VoiceReportsTable.handled])
         assertEquals("modbob", report[VoiceReportsTable.handledBy])
@@ -196,7 +204,10 @@ class DiscordModerationTest {
     @Test
     fun `permanent ban and dismiss buttons`() {
         val id = filedReport(player("Alice"), player("Bob"))
-        assertEquals("Banned permanently by <@42>", content(handle(button("ban:0:$id"))))
+        assertEquals("Pick a rule from the list.", content(handle(banModal("ban:0:$id", "not-a-rule"))))
+        assertFalse(moderation.isBanned(player("Bob").uuid))
+        assertEquals("Banned permanently by <@42> — Ban evasion", content(handle(banModal("ban:0:$id", "ban_evasion"))))
+        assertEquals("Ban evasion", transaction(moderation.db) { VoiceBansTable.selectAll().single()[VoiceBansTable.reason] })
         assertNull(transaction(moderation.db) { VoiceBansTable.selectAll().single()[VoiceBansTable.expiresAt] })
 
         val other = filedReport(player("Alice"), player("Carol"))
@@ -214,7 +225,7 @@ class DiscordModerationTest {
         voice.connected(reporter)
         val id = filedReport(reporter, onVoice("Bob"))
 
-        handle(button("ban:7:$id"))
+        handle(banModal("ban:7:$id", "disruption"))
 
         assertEquals(listOf(Packet.Result(ResultKind.REPORT_OUTCOME, true, "Report #$id was actioned")), sent[reporter.uuid]!!.filterIsInstance<Packet.Result>())
         val report = transaction(moderation.db) { VoiceReportsTable.selectAll().where { VoiceReportsTable.id eq id }.single() }
@@ -257,7 +268,7 @@ class DiscordModerationTest {
         handle(button("dismiss:$dismissed"))
         sent.values.forEach { it.clear() }
 
-        assertEquals("Banned Bob permanently. Actioned 2 open report(s): #$first, #$second.", content(handle(slash("ban", "player" to "Bob"))))
+        assertEquals("Banned Bob permanently. Actioned 2 open report(s): #$first, #$second.", content(handle(slash("ban", "player" to "Bob", "reason" to "harassment"))))
 
         val rows = transaction(moderation.db) { VoiceReportsTable.selectAll().associate { it[VoiceReportsTable.id].value to Triple(it[VoiceReportsTable.outcome], it[VoiceReportsTable.handledBy], it[VoiceReportsTable.notifiedAt]) } }
         assertEquals(Triple("ACTIONED", "modbob", now), rows[first])
@@ -274,19 +285,19 @@ class DiscordModerationTest {
         val offline = UUID.randomUUID()
         profiles["Offline"] = offline
 
-        val banned = handle(slash("ban", "player" to "bob", "days" to 30, "reason" to "slurs"))
+        val banned = handle(slash("ban", "player" to "bob", "days" to 30, "reason" to "hate"))
         assertEphemeral(banned)
         assertEquals("Banned bob for 30 days.", content(banned))
         assertTrue(moderation.isBanned(bob.uuid))
         val row = transaction(moderation.db) { VoiceBansTable.selectAll().single() }
-        assertEquals("slurs", row[VoiceBansTable.reason])
+        assertEquals("Hate speech", row[VoiceBansTable.reason])
         assertEquals(now + 30 * 24 * 60 * 60_000L, row[VoiceBansTable.expiresAt])
 
-        assertEquals("Banned Offline permanently.", content(handle(slash("ban", "player" to "Offline"))))
+        assertEquals("Banned Offline permanently.", content(handle(slash("ban", "player" to "Offline", "reason" to "sexual"))))
         assertTrue(moderation.isBanned(offline))
 
-        assertEquals("Unknown player Nobody.", content(handle(slash("ban", "player" to "Nobody"))))
-        assertEquals("Unknown player bad name!.", content(handle(slash("ban", "player" to "bad name!"))))
+        assertEquals("Unknown player Nobody.", content(handle(slash("ban", "player" to "Nobody", "reason" to "sexual"))))
+        assertEquals("Unknown player bad name!.", content(handle(slash("ban", "player" to "bad name!", "reason" to "sexual"))))
 
         assertEquals("Unbanned Bob.", content(handle(slash("unban", "player" to "Bob"))))
         assertFalse(moderation.isBanned(bob.uuid))
@@ -299,13 +310,13 @@ class DiscordModerationTest {
         assertEquals("No active bans.", content(handle(slash("bans"))))
         val bob = onVoice("Bob")
         val carol = player("Carol")
-        handle(slash("ban", "player" to "Bob", "days" to 1, "reason" to "spam"))
+        handle(slash("ban", "player" to "Bob", "days" to 1, "reason" to "disruption"))
         moderation.ban(carol.uuid, "", "modbob", null)
         moderation.block(bob.uuid, carol.uuid)
 
         val bans = content(handle(slash("bans"))).lines()
         assertEquals(2, bans.size)
-        assertEquals("Bob (`${bob.uuid}`) — until <t:${(now + 24 * 60 * 60_000L) / 1000}:f> — by modbob — spam", bans[0])
+        assertEquals("Bob (`${bob.uuid}`) — until <t:${(now + 24 * 60 * 60_000L) / 1000}:f> — by modbob — Disruption (earrape, soundboards, spam)", bans[0])
         assertEquals("`${carol.uuid}` — permanent — by modbob", bans[1])
 
         assertEquals("`${carol.uuid}`", content(handle(slash("blocks", "player" to "Bob"))))

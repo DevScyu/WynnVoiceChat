@@ -1,6 +1,7 @@
 package wynnvoicechat.server.discord
 
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.sun.net.httpserver.HttpExchange
@@ -84,9 +85,25 @@ class DiscordModeration(
 
     private class Moderator(val id: String, val name: String)
 
-    enum class Kind { PING, BAN_BUTTON, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, UNKNOWN }
+    enum class Kind { PING, BAN_BUTTON, BAN_MODAL, DISMISS_BUTTON, CMD_BAN, CMD_UNBAN, CMD_BANS, CMD_BLOCKS, UNKNOWN }
     enum class Outcome { OK, BAD_SIGNATURE, UNAUTHORIZED, ERROR }
     enum class BanAction { BAN, UNBAN, DISMISS }
+
+    /** One entry per "Not allowed" bullet on wynnvoicechat.com/rules (website/src/pages/rules.md); keep the labels identical. */
+    enum class BanReason(val key: String, val label: String) {
+        HARASSMENT("harassment", "Harassment, threats or bullying"),
+        HATE("hate", "Hate speech"),
+        SEXUAL("sexual", "Sexual content"),
+        SELF_HARM("self_harm", "Encouraging self-harm or drug use"),
+        VIOLENCE("violence", "Encouraging violence or terrorism"),
+        DOXXING("doxxing", "Sharing personal information"),
+        DISRUPTION("disruption", "Disruption (earrape, soundboards, spam)"),
+        BAN_EVASION("ban_evasion", "Ban evasion");
+
+        companion object {
+            fun byKey(key: String?) = entries.firstOrNull { it.key == key }
+        }
+    }
     enum class BanSource { BUTTON, COMMAND }
     enum class Operation { POST_REPORT, REGISTER_COMMANDS }
     enum class RequestOutcome { OK, ERROR }
@@ -99,9 +116,13 @@ class DiscordModeration(
         private const val PING = 1
         private const val APPLICATION_COMMAND = 2
         private const val MESSAGE_COMPONENT = 3
+        private const val MODAL_SUBMIT = 5
         private const val PONG = 1
         private const val CHANNEL_MESSAGE = 4
         private const val UPDATE_MESSAGE = 7
+        private const val MODAL = 9
+        private const val STRING_SELECT = 3
+        private const val LABEL = 18
         private const val EPHEMERAL = 64
         private const val ACTION_ROW = 1
         private const val BUTTON = 2
@@ -174,6 +195,7 @@ class DiscordModeration(
                 "dismiss" -> Kind.DISMISS_BUTTON
                 else -> Kind.UNKNOWN
             }
+            MODAL_SUBMIT -> if (data?.get("custom_id")?.asString?.startsWith("ban:") == true) Kind.BAN_MODAL else Kind.UNKNOWN
             APPLICATION_COMMAND -> when (data?.getAsJsonArray("options")?.firstOrNull()?.asJsonObject?.get("name")?.asString) {
                 "ban" -> Kind.CMD_BAN
                 "unban" -> Kind.CMD_UNBAN
@@ -200,6 +222,7 @@ class DiscordModeration(
         return counted(kind, Outcome.OK, when (type) {
             APPLICATION_COMMAND -> command(data, moderator)
             MESSAGE_COMPONENT -> button(data["custom_id"].asString, moderator)
+            MODAL_SUBMIT -> banModalSubmitted(data, moderator)
             else -> ephemeral("Unsupported interaction.")
         })
     }
@@ -209,12 +232,7 @@ class DiscordModeration(
         val reportId = parts.last().toIntOrNull() ?: return ephemeral("Unknown button.")
         val (_, target) = moderation.reportParties(reportId) ?: return ephemeral("Report #$reportId no longer exists.")
         val (outcome, verdict) = when (parts[0]) {
-            "ban" -> {
-                val days = parts[1].toInt()
-                ban(target, days, "Report #$reportId", moderator)
-                bans.getValue(BanAction.BAN).getValue(BanSource.BUTTON).increment()
-                "Banned ${duration(days)}" to Verdict.ACTIONED
-            }
+            "ban" -> return banModal(customId, parts[1].toInt())
             "dismiss" -> {
                 bans.getValue(BanAction.DISMISS).getValue(BanSource.BUTTON).increment()
                 "Dismissed" to Verdict.DISMISSED
@@ -227,6 +245,42 @@ class DiscordModeration(
         return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "$outcome by <@${moderator.id}>", "components" to emptyList<Any>()))
     }
 
+    /** The ban buttons open this; the ban itself happens in [banModalSubmitted]. */
+    private fun banModal(customId: String, days: Int) = mapOf(
+        "type" to MODAL,
+        "data" to mapOf(
+            "custom_id" to customId,
+            "title" to "Ban ${duration(days)}",
+            "components" to listOf(mapOf(
+                "type" to LABEL, "label" to "Rule broken", "description" to "Shown to the player when voice refuses them",
+                "component" to mapOf(
+                    "type" to STRING_SELECT, "custom_id" to "reason", "required" to true,
+                    "options" to BanReason.entries.map { mapOf("label" to it.label, "value" to it.key) },
+                ),
+            )),
+        ),
+    )
+
+    private fun banModalSubmitted(data: JsonObject, moderator: Moderator): Map<String, Any?> {
+        val parts = data["custom_id"].asString.split(':')
+        val days = parts[1].toInt()
+        val reportId = parts[2].toIntOrNull() ?: return ephemeral("Unknown report.")
+        val (_, target) = moderation.reportParties(reportId) ?: return ephemeral("Report #$reportId no longer exists.")
+        val reason = BanReason.byKey(modalSelection(data, "reason")) ?: return ephemeral("Pick a rule from the list.")
+        ban(target, days, reason.label, moderator)
+        bans.getValue(BanAction.BAN).getValue(BanSource.BUTTON).increment()
+        moderation.markHandled(reportId, moderator.name, Verdict.ACTIONED)
+        voice.reportHandled(reportId)
+        logger.info("Report #{} banned {} by {}", reportId, duration(days), moderator.name)
+        return mapOf("type" to UPDATE_MESSAGE, "data" to mapOf("content" to "Banned ${duration(days)} by <@${moderator.id}> — ${reason.label}", "components" to emptyList<Any>()))
+    }
+
+    /** First selected value of the modal's select menu [customId]; tolerates Label (`component`) and Action Row (`components`) wrappers. */
+    private fun modalSelection(data: JsonObject, customId: String): String? =
+        data.getAsJsonArray("components")?.map { it.asJsonObject }?.flatMap { wrapper ->
+            wrapper.getAsJsonObject("component")?.let { listOf(it) } ?: wrapper.getAsJsonArray("components")?.map { it.asJsonObject } ?: emptyList()
+        }?.firstOrNull { it["custom_id"]?.asString == customId }?.let { it.getAsJsonArray("values")?.firstOrNull()?.asString ?: it["value"]?.asString }
+
     private fun command(data: JsonObject, moderator: Moderator): Map<String, Any?> {
         val sub = data.getAsJsonArray("options")?.firstOrNull()?.asJsonObject ?: return ephemeral("Unknown command.")
         val args = sub.getAsJsonArray("options")?.associate { it.asJsonObject.let { o -> o["name"].asString to o["value"] } } ?: emptyMap()
@@ -234,7 +288,8 @@ class DiscordModeration(
         return when (sub["name"].asString) {
             "ban" -> resolving(player) { uuid ->
                 val days = args["days"]?.asInt ?: 0
-                ban(uuid, days, args["reason"]?.asString ?: "", moderator)
+                val reason = BanReason.byKey(args["reason"]?.asString) ?: return@resolving ephemeral("Pick a rule from the list.")
+                ban(uuid, days, reason.label, moderator)
                 bans.getValue(BanAction.BAN).getValue(BanSource.COMMAND).increment()
                 logger.info("{} banned {} {}", moderator.name, player, duration(days))
                 val actioned = moderation.openReportsAgainst(uuid).onEach { reportId ->
@@ -343,8 +398,9 @@ class DiscordModeration(
                 "options" to listOf(
                     sub(
                         "ban", "Ban a player from voice chat", player,
+                        mapOf("type" to STRING, "name" to "reason", "description" to "Rule broken", "required" to true,
+                            "choices" to BanReason.entries.map { mapOf("name" to it.label, "value" to it.key) }),
                         mapOf("type" to INTEGER, "name" to "days", "description" to "Length in days, omit for permanent", "min_value" to 1),
-                        mapOf("type" to STRING, "name" to "reason", "description" to "Reason"),
                     ),
                     sub("unban", "Lift a player's voice ban", player),
                     sub("bans", "List active voice bans"),
