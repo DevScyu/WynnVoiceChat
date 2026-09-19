@@ -4,7 +4,7 @@ COPY . .
 RUN ./gradlew --no-daemon -Dorg.gradle.configureondemand=true :server:shadowJar
 
 FROM eclipse-temurin:21-jre
-COPY --from=build /src/server/build/libs/server-*-all.jar /app/server.jar
+COPY --from=build /src/server/build/libs/wynnvoicechat-relay-*-all.jar /app/server.jar
 ENV DB_PATH=/data/voice.db \
     VOICE_REPORT_DIR=/data/voice-reports
 VOLUME /data

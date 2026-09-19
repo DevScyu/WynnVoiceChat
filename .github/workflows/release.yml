@@ -15,7 +15,6 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew :mod:build -Pversion=${GITHUB_REF_NAME#v}
-      - run: mv mod/build/libs/mod-*.jar mod/build/libs/wynnvoicechat-${GITHUB_REF_NAME#v}.jar
       - uses: Kira-NT/mc-publish@v3
         with:
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}

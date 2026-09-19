@@ -129,7 +129,7 @@ cd WynnVoiceChat
 ```
 
 The mod is `mod/build/libs/mod-<version>.jar` (the protocol classes are nested inside it), the
-relay is `server/build/libs/server-<version>-all.jar`.
+relay is `server/build/libs/wynnvoicechat-relay-<version>-all.jar`.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

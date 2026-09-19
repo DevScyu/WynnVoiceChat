@@ -2,6 +2,8 @@ plugins {
     id("fabric-loom") version "1.18.2"
 }
 
+base.archivesName = "wynnvoicechat"
+
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
 }

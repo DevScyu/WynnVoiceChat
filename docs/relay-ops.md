@@ -6,7 +6,7 @@ The relay is a single self-contained jar (JRE 21 or newer):
 
 ```sh
 VOICE_ENABLED=true VOICE_HOST=voice.example.com \
-  java -jar server/build/libs/server-<version>-all.jar
+  java -jar server/build/libs/wynnvoicechat-relay-<version>-all.jar
 ```
 
 or, during development, `./gradlew :server:run`.
