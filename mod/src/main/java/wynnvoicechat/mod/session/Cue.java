@@ -39,7 +39,7 @@ public enum Cue {
             case INCOMING -> INCOMING;
             case RINGING -> RINGBACK;
             case ACTIVE -> CONNECTED;
-            case ENDED, NO_ANSWER -> ENDED;
+            case ENDED, NO_ANSWER, EXPIRED -> ENDED;
             case DECLINED -> DECLINED;
             case BUSY, DND -> BUSY;
         };

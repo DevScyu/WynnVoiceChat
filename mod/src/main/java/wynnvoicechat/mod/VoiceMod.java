@@ -22,12 +22,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Util;
 import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import wynnvoicechat.mod.command.VoiceCommand;
 import wynnvoicechat.mod.config.VoiceConfig;
 import wynnvoicechat.mod.config.VoiceConfig.Notice;
+import wynnvoicechat.mod.hud.CallHud;
+import wynnvoicechat.mod.hud.CallOverlay;
 import wynnvoicechat.mod.net.VoiceClient;
 import wynnvoicechat.mod.screen.ConsentScreen;
 import wynnvoicechat.mod.session.Cue;
@@ -66,6 +69,8 @@ public final class VoiceMod implements ClientModInitializer {
     private FriendsTracker friends;
     private final IgnoreTracker ignore = new IgnoreTracker();
     private final Sounds sounds = new Sounds();
+    private final CallHud hud = new CallHud();
+    private CallOverlay overlay;
     private volatile boolean onWynncraft;
     private boolean svcInstalled;
     private boolean refused;
@@ -86,6 +91,7 @@ public final class VoiceMod implements ClientModInitializer {
         instance = this;
         svcInstalled = FabricLoader.getInstance().isModLoaded("voicechat");
         VoiceCommand.register(this);
+        overlay = new CallOverlay(hud, () -> config.hud);
         ClientPlayConnectionEvents.JOIN.register((handler, sender, minecraft) -> {
             ServerData server = handler.getServerData();
             onWynncraft = server != null && isWynncraft(server.ip);
@@ -116,6 +122,8 @@ public final class VoiceMod implements ClientModInitializer {
     }
 
     private void tick(Minecraft minecraft) {
+        Packet.Call call = overlay.poll(Util.getMillis());
+        if (call != null) request(call);
         if (!onWynncraft || minecraft.getConnection() == null) return;
         PlayerInfo entry = minecraft.getConnection().getPlayerInfo(WorldTracker.TAB_LIST_ENTRY);
         Component name = entry == null ? null : entry.getTabListDisplayName();
@@ -254,6 +262,11 @@ public final class VoiceMod implements ClientModInitializer {
         config.sounds = on;
         saveConfig();
         if (!on) sounds.stop();
+    }
+
+    public void setHud(boolean on) {
+        config.hud = on;
+        saveConfig();
     }
 
     /** Simple Voice Chat's mic mute toggled; only worth a cue where the mod is active. */
@@ -508,6 +521,7 @@ public final class VoiceMod implements ClientModInitializer {
 
         @Override
         public void callState(Packet.CallState state) {
+            instance.hud.onState(state, Util.getMillis());
             String key = "wynnvoicechat.call." + state.state().name().toLowerCase(Locale.ROOT);
             MutableComponent line = Component.translatable(key, state.peerName());
             if (state.state() == CallStateKind.INCOMING) {
@@ -529,6 +543,7 @@ public final class VoiceMod implements ClientModInitializer {
         @Override
         public void silence() {
             instance.sounds.stop();
+            instance.hud.clear();
         }
 
         private static Component button(String key, String command, ChatFormatting colour) {

@@ -301,7 +301,8 @@ class VoiceManager(
             CallAction.INVITE -> {
                 val caller = sessions[player.uuid]?.takeIf { it.player === player } ?: return refuse("You are not on voice chat")
                 val target = sessionNamed(targetName) ?: return refuse("$targetName is not on voice chat")
-                val name = target.player.name
+                val peer = target.player
+                val name = peer.name
                 when {
                     target === caller -> return refuse("You cannot call yourself")
                     !player.friends.contains(name) || !target.player.friends.contains(player.name) -> return refuse("You can only call mutual friends")
@@ -309,12 +310,12 @@ class VoiceManager(
                     target.player.party.isNotEmpty() -> return refuse("$name is in a party")
                     moderation.isBlocked(player.uuid, target.player.uuid) -> return refuse("You cannot call $name")
                     isBusy(caller) -> return refuse("Hang up or answer your current call first")
-                    target.dnd -> return answer(player, name, CallStateKind.DND, CallOutcome.DND)
-                    isBusy(target) -> return answer(player, name, CallStateKind.BUSY, CallOutcome.BUSY)
+                    target.dnd -> return answer(player, peer, CallStateKind.DND, CallOutcome.DND)
+                    isBusy(target) -> return answer(player, peer, CallStateKind.BUSY, CallOutcome.BUSY)
                 }
                 invites[player.uuid] = Invite(player, target.player, clock() + INVITE_TIMEOUT_MS)
-                answer(player, name, CallStateKind.RINGING, CallOutcome.INVITED)
-                target.player.send(CallState(player.name, CallStateKind.INCOMING))
+                answer(player, peer, CallStateKind.RINGING, CallOutcome.INVITED)
+                peer.send(CallState(player.name, player.uuid, CallStateKind.INCOMING))
             }
             CallAction.ACCEPT, CallAction.DECLINE -> {
                 val invite = invites.values.firstOrNull { it.target === player } ?: return refuse("Nobody is calling you")
@@ -322,20 +323,20 @@ class VoiceManager(
                 val callee = sessions[player.uuid]?.takeIf { it.player === player }
                 val caller = sessions[invite.caller.uuid]?.takeIf { it.player === invite.caller }
                 if (action == CallAction.DECLINE || callee == null || caller == null) {
-                    return answer(invite.caller, player.name, CallStateKind.DECLINED, CallOutcome.DECLINED)
+                    return answer(invite.caller, player, CallStateKind.DECLINED, CallOutcome.DECLINED)
                 }
                 callee.callPeer = invite.caller
                 caller.callPeer = player
-                answer(invite.caller, player.name, CallStateKind.ACTIVE, CallOutcome.ACCEPTED)
-                player.send(CallState(invite.caller.name, CallStateKind.ACTIVE))
+                answer(invite.caller, player, CallStateKind.ACTIVE, CallOutcome.ACCEPTED)
+                player.send(CallState(invite.caller.name, invite.caller.uuid, CallStateKind.ACTIVE))
             }
             CallAction.HANGUP -> if (!endCalls(player)) refuse("You are not in a call")
         }
     }
 
-    private fun answer(player: Player, peerName: String, state: CallStateKind, outcome: CallOutcome) {
+    private fun answer(player: Player, peer: Player, state: CallStateKind, outcome: CallOutcome) {
         calls.getValue(outcome).increment()
-        player.send(CallState(peerName, state))
+        player.send(CallState(peer.name, peer.uuid, state))
     }
 
     private fun isBusy(session: VoiceSession) =
@@ -353,8 +354,8 @@ class VoiceManager(
             if (with != null && other.uuid != with) return@removeIf false
             any = true
             calls.getValue(CallOutcome.ENDED).increment()
-            player.send(CallState(other.name, CallStateKind.ENDED))
-            other.send(CallState(player.name, CallStateKind.ENDED))
+            player.send(CallState(other.name, other.uuid, CallStateKind.ENDED))
+            other.send(CallState(player.name, player.uuid, CallStateKind.ENDED))
             true
         }
         val session = ended ?: sessions[player.uuid]?.takeIf { it.player === player } ?: return any
@@ -362,8 +363,8 @@ class VoiceManager(
         session.callPeer = null
         sessions[peer.uuid]?.takeIf { it.callPeer === player }?.callPeer = null
         calls.getValue(CallOutcome.ENDED).increment()
-        player.send(CallState(peer.name, CallStateKind.ENDED))
-        peer.send(CallState(player.name, CallStateKind.ENDED))
+        player.send(CallState(peer.name, peer.uuid, CallStateKind.ENDED))
+        peer.send(CallState(player.name, player.uuid, CallStateKind.ENDED))
         return true
     }
 
@@ -371,7 +372,8 @@ class VoiceManager(
     private fun expireInvites(now: Long) {
         invites.values.removeIf { invite ->
             if (invite.expiresAt > now) return@removeIf false
-            answer(invite.caller, invite.target.name, CallStateKind.NO_ANSWER, CallOutcome.NO_ANSWER)
+            answer(invite.caller, invite.target, CallStateKind.NO_ANSWER, CallOutcome.NO_ANSWER)
+            invite.target.send(CallState(invite.caller.name, invite.caller.uuid, CallStateKind.EXPIRED))
             true
         }
     }

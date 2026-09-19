@@ -48,7 +48,7 @@ class PacketRoundTripTest {
                 new BlockListResult(List.of("Alice", "Bob")),
                 new GuildMute("Someone", true, 24),
                 new Call("Someone", CallAction.INVITE),
-                new CallState("Someone", CallStateKind.DND),
+                new CallState("Someone", UUID.randomUUID(), CallStateKind.EXPIRED),
                 new Guild("ABC"));
     }
 

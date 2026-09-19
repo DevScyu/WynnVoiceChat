@@ -26,6 +26,7 @@ import wynnvoicechat.protocol.SocialKind;
 import wynnvoicechat.protocol.VoiceTier;
 
 class VoiceSessionTest {
+    private static final UUID F = UUID.fromString("00000000-0000-4000-8000-00000000000f");
     private static final Packet.Secret SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000, VoiceTier.EVERYONE);
     private static final Packet.Secret CAPPED_SECRET = new Packet.Secret(new byte[16], "voice.test", 24454, 32.0, 1000, VoiceTier.FRIENDS_AND_GUILD);
 
@@ -394,24 +395,24 @@ class VoiceSessionTest {
         session.onPacket(new Packet.Peers(List.of(friendPeer)));
         assertTrue(groups.isEmpty());
 
-        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.RINGING));
         assertTrue(groups.isEmpty(), "ringing is not a call yet");
-        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.ACTIVE));
         assertEquals(List.of(VoiceSession.CALL_GROUP), groups, "the group opens without waiting for peers");
         assertEquals(new VoiceChatPayloads.State(friend, "F", false, false, VoiceSession.CALL_GROUP), injectedStates.get(injectedStates.size() - 1).get(0));
         session.onPacket(new Packet.Peers(List.of(friendPeer, new Peer(UUID.randomUUID(), "P", false, Relation.PARTY, true, false))));
         assertEquals(List.of(VoiceSession.CALL_GROUP, VoiceSession.PARTY_GROUP), groups, "party wins");
 
         session.onPacket(new Packet.Peers(List.of(friendPeer)));
-        session.onPacket(new Packet.CallState("F", CallStateKind.ENDED));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.ENDED));
         assertEquals(Arrays.asList(VoiceSession.CALL_GROUP, VoiceSession.PARTY_GROUP, VoiceSession.CALL_GROUP, null), groups);
         assertEquals(new VoiceChatPayloads.State(friend, "F", false, false, null), injectedStates.get(injectedStates.size() - 1).get(0));
         assertEquals(List.of(
-                new Packet.CallState("F", CallStateKind.RINGING),
-                new Packet.CallState("F", CallStateKind.ACTIVE),
-                new Packet.CallState("F", CallStateKind.ENDED)), callStates);
+                new Packet.CallState("F", F, CallStateKind.RINGING),
+                new Packet.CallState("F", F, CallStateKind.ACTIVE),
+                new Packet.CallState("F", F, CallStateKind.ENDED)), callStates);
 
-        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.ACTIVE));
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         session.onPacket(SECRET);
         session.onPacket(new Packet.Peers(List.of(friendPeer)));
@@ -499,33 +500,44 @@ class VoiceSessionTest {
     @Test
     void callStatesPlayTheirCueAndTheLoopStopsOnAnyOutcome() {
         joined();
-        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
-        session.onPacket(new Packet.CallState("F", CallStateKind.BUSY));
-        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
-        session.onPacket(new Packet.CallState("F", CallStateKind.DND));
-        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
-        session.onPacket(new Packet.CallState("F", CallStateKind.NO_ANSWER));
-        session.onPacket(new Packet.CallState("F", CallStateKind.RINGING));
-        session.onPacket(new Packet.CallState("F", CallStateKind.DECLINED));
-        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
-        session.onPacket(new Packet.CallState("F", CallStateKind.ACTIVE));
-        session.onPacket(new Packet.CallState("F", CallStateKind.ENDED));
-        assertEquals(List.of("RINGBACK", "BUSY", "RINGBACK", "BUSY", "RINGBACK", "ENDED", "RINGBACK", "DECLINED", "INCOMING", "CONNECTED", "ENDED"), cues);
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.BUSY));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.DND));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.NO_ANSWER));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.RINGING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.DECLINED));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.ACTIVE));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.ENDED));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.EXPIRED));
+        assertEquals(List.of("RINGBACK", "BUSY", "RINGBACK", "BUSY", "RINGBACK", "ENDED", "RINGBACK", "DECLINED", "INCOMING", "CONNECTED", "ENDED", "INCOMING", "ENDED"), cues);
+    }
+
+    @Test
+    void decliningSilencesTheRingtoneSinceTheRelayOnlyAnswersTheCaller() {
+        joined();
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
+        session.request(new Packet.Call("", CallAction.DECLINE));
+        session.request(new Packet.Call("", CallAction.HANGUP));
+        assertEquals(List.of("INCOMING", "silence"), cues);
     }
 
     @Test
     void staleCallAnswersAndSessionEndsSilenceTheLoop() {
         joined();
-        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
         session.request(new Packet.Call("G", CallAction.INVITE));
         session.onPacket(new Packet.Result(ResultKind.CALL, false, "Hang up or answer your current call first"));
         session.request(new Packet.Call("", CallAction.ACCEPT));
         session.onPacket(new Packet.Result(ResultKind.CALL, false, "Nobody is calling you"));
         session.onPacket(new Packet.Result(ResultKind.BLOCK, false, "Unknown player"));
-        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
         session.onPacket(new Packet.Ended(EndReason.TIMED_OUT, "timed out"));
         session.onPacket(SECRET);
-        session.onPacket(new Packet.CallState("F", CallStateKind.INCOMING));
+        session.onPacket(new Packet.CallState("F", F, CallStateKind.INCOMING));
         session.onClosed();
         assertEquals(List.of("INCOMING", "silence", "INCOMING", "silence", "INCOMING", "silence"), cues);
     }

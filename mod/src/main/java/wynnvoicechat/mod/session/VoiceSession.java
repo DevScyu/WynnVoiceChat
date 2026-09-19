@@ -66,7 +66,7 @@ public final class VoiceSession {
         /** Play this cue; a call cue first stops any ringing loop, and the two ring cues loop until stopped. */
         void sound(Cue cue);
 
-        /** Stop any ringing loop. */
+        /** The call is over as far as we know: stop any ringing loop and drop the call overlay. */
         void silence();
     }
 
@@ -154,7 +154,11 @@ public final class VoiceSession {
     public boolean request(Packet packet) {
         if (!authenticated) return false;
         if (packet instanceof Packet.Block block) pendingBlockTargets.put(block.blocked() ? ResultKind.BLOCK : ResultKind.UNBLOCK, block.targetName());
-        if (packet instanceof Packet.Call call) lastCallAction = call.action();
+        if (packet instanceof Packet.Call call) {
+            lastCallAction = call.action();
+            // The relay answers a decline to the caller only; the callee's ringtone ends here
+            if (call.action() == CallAction.DECLINE) effects.silence();
+        }
         effects.send(packet);
         return true;
     }

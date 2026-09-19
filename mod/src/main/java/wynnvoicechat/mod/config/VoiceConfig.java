@@ -35,6 +35,8 @@ public final class VoiceConfig {
     public boolean dnd;
     /** Ring, call and presence cues. */
     public boolean sounds = true;
+    /** The on-screen call panel and pill; the keys work regardless. */
+    public boolean hud = true;
     private transient Path file;
 
     public static VoiceConfig load(Path file) throws IOException {

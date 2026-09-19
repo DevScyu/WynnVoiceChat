@@ -127,6 +127,7 @@ public final class PacketCodec {
             case CallState p -> {
                 out.writeByte(19);
                 writeString(out, p.peerName());
+                writeUuid(out, p.peerUuid());
                 writeEnum(out, p.state());
             }
             case Guild p -> {
@@ -165,7 +166,7 @@ public final class PacketCodec {
             case 16 -> new BlockListResult(readStrings(in));
             case 17 -> new GuildMute(readString(in), in.readBoolean(), readVarInt(in));
             case 18 -> new Call(readString(in), readEnum(in, CallAction.class));
-            case 19 -> new CallState(readString(in), readEnum(in, CallStateKind.class));
+            case 19 -> new CallState(readString(in), readUuid(in), readEnum(in, CallStateKind.class));
             case 20 -> new Guild(readString(in));
             default -> throw new DecoderException("Unknown packet id " + id);
         };

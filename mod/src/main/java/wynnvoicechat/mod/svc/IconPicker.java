@@ -3,12 +3,12 @@ package wynnvoicechat.mod.svc;
 import net.minecraft.resources.Identifier;
 import wynnvoicechat.protocol.Peer;
 
+/** The nameplate glyph for a voice peer: one white speaker sprite, tinted by relation, crossed when they cannot hear us. */
 public final class IconPicker {
-    public static final Identifier PARTY = icon("party");
-    public static final Identifier FRIEND = icon("friend");
-    public static final Identifier GUILD = icon("guild");
-    public static final Identifier STRANGER = icon("stranger");
-    public static final Identifier UNREACHABLE = icon("unreachable");
+    public record Icon(Identifier texture, int argb) {}
+
+    public static final Identifier SPEAKER = icon("speaker");
+    public static final Identifier SPEAKER_OFF = icon("speaker_off");
 
     private IconPicker() {}
 
@@ -16,13 +16,13 @@ public final class IconPicker {
         return Identifier.fromNamespaceAndPath("wynnvoicechat", "textures/icons/" + name + ".png");
     }
 
-    public static Identifier iconFor(Peer peer) {
-        if (peer.disabled() || !peer.reachable()) return UNREACHABLE;
-        return switch (peer.relation()) {
-            case PARTY -> PARTY;
-            case FRIEND -> FRIEND;
-            case GUILD -> GUILD;
-            case NONE -> STRANGER;
-        };
+    public static Icon iconFor(Peer peer) {
+        if (peer.disabled() || !peer.reachable()) return new Icon(SPEAKER_OFF, 0xFFFF5555);
+        return new Icon(SPEAKER, switch (peer.relation()) {
+            case PARTY -> 0xFF55FF55;
+            case FRIEND -> 0xFF55AAFF;
+            case GUILD -> 0xFFFFC828;
+            case NONE -> 0xFFFFFFFF;
+        });
     }
 }

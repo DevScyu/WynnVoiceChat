@@ -25,7 +25,7 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
     private static final int SEE_THROUGH_ALPHA = 127;
 
     // Set while SVC's icon for the current nameplate is cancelled, consumed by our listener right after; render thread only
-    private Identifier pendingIcon;
+    private IconPicker.Icon pendingIcon;
 
     @Override
     public String getPluginId() {
@@ -49,7 +49,7 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
     }
 
     private void onNameplate(EntityRenderState s, CameraRenderState camera, PoseStack stack, SubmitNodeCollector collector) {
-        Identifier icon = pendingIcon;
+        IconPicker.Icon icon = pendingIcon;
         pendingIcon = null;
         if (icon == null || !(s instanceof AvatarRenderState state) || s.nameTag == null || s.nameTagAttachment == null) return;
 
@@ -60,25 +60,26 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
         stack.scale(0.025F, -0.025F, 0.025F);
         float x = Minecraft.getInstance().font.width(s.nameTag) / 2F + 2F;
         int light = state.lightCoords;
-        collector.submitCustomGeometry(stack, RenderTypes.text(icon), (pose, buffer) ->
-                quad(buffer, pose, x, state.isDiscrete ? SEE_THROUGH_ALPHA : 255, light));
+        collector.submitCustomGeometry(stack, RenderTypes.text(icon.texture()), (pose, buffer) ->
+                quad(buffer, pose, x, icon.argb(), state.isDiscrete ? SEE_THROUGH_ALPHA : 255, light));
         if (!state.isDiscrete) {
-            collector.submitCustomGeometry(stack, RenderTypes.textSeeThrough(icon), (pose, buffer) ->
-                    quad(buffer, pose, x, SEE_THROUGH_ALPHA, light));
+            collector.submitCustomGeometry(stack, RenderTypes.textSeeThrough(icon.texture()), (pose, buffer) ->
+                    quad(buffer, pose, x, icon.argb(), SEE_THROUGH_ALPHA, light));
         }
         stack.popPose();
     }
 
-    private static void quad(VertexConsumer buffer, PoseStack.Pose pose, float x, int alpha, int light) {
-        vertex(buffer, pose, x, 9F, 0F, 1F, alpha, light);
-        vertex(buffer, pose, x + 10F, 9F, 1F, 1F, alpha, light);
-        vertex(buffer, pose, x + 10F, -1F, 1F, 0F, alpha, light);
-        vertex(buffer, pose, x, -1F, 0F, 0F, alpha, light);
+    private static void quad(VertexConsumer buffer, PoseStack.Pose pose, float x, int argb, int alpha, int light) {
+        int colour = argb & 0xFFFFFF | alpha << 24;
+        vertex(buffer, pose, x, 9F, 0F, 1F, colour, light);
+        vertex(buffer, pose, x + 10F, 9F, 1F, 1F, colour, light);
+        vertex(buffer, pose, x + 10F, -1F, 1F, 0F, colour, light);
+        vertex(buffer, pose, x, -1F, 0F, 0F, colour, light);
     }
 
-    private static void vertex(VertexConsumer buffer, PoseStack.Pose pose, float x, float y, float u, float v, int alpha, int light) {
+    private static void vertex(VertexConsumer buffer, PoseStack.Pose pose, float x, float y, float u, float v, int argb, int light) {
         buffer.addVertex(pose.pose(), x, y, 0F)
-                .setColor(255, 255, 255, alpha)
+                .setColor(argb)
                 .setUv(u, v)
                 .setOverlay(OverlayTexture.NO_OVERLAY)
                 .setLight(light)

@@ -80,7 +80,7 @@ public sealed interface Packet {
     /** Friend call control; {@code targetName} only matters for {@code INVITE}. */
     record Call(String targetName, CallAction action) implements Packet {}
 
-    record CallState(String peerName, CallStateKind state) implements Packet {}
+    record CallState(String peerName, UUID peerUuid, CallStateKind state) implements Packet {}
 
     /** The player's guild prefix once the relay has looked it up; empty when they have no guild. */
     record Guild(String prefix) implements Packet {}

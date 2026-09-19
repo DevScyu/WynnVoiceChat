@@ -13,24 +13,25 @@ class IconPickerTest {
     }
 
     @Test
-    void reachableAndEnabledPeersAreTintedByRelation() {
-        assertEquals(IconPicker.PARTY, IconPicker.iconFor(peer(Relation.PARTY, true, false)));
-        assertEquals(IconPicker.FRIEND, IconPicker.iconFor(peer(Relation.FRIEND, true, false)));
-        assertEquals(IconPicker.GUILD, IconPicker.iconFor(peer(Relation.GUILD, true, false)));
-        assertEquals(IconPicker.STRANGER, IconPicker.iconFor(peer(Relation.NONE, true, false)));
+    void reachableAndEnabledPeersGetTheSpeakerTintedByRelation() {
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55FF55), IconPicker.iconFor(peer(Relation.PARTY, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55AAFF), IconPicker.iconFor(peer(Relation.FRIEND, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFFFFC828), IconPicker.iconFor(peer(Relation.GUILD, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFFFFFFFF), IconPicker.iconFor(peer(Relation.NONE, true, false)));
     }
 
     @Test
-    void unreachableOrDisabledPeersAreCrossedOutWhateverTheRelation() {
+    void unreachableOrDisabledPeersGetTheRedCrossedSpeakerWhateverTheRelation() {
+        IconPicker.Icon crossed = new IconPicker.Icon(IconPicker.SPEAKER_OFF, 0xFFFF5555);
         for (Relation relation : Relation.values()) {
-            assertEquals(IconPicker.UNREACHABLE, IconPicker.iconFor(peer(relation, false, false)));
-            assertEquals(IconPicker.UNREACHABLE, IconPicker.iconFor(peer(relation, true, true)));
-            assertEquals(IconPicker.UNREACHABLE, IconPicker.iconFor(peer(relation, false, true)));
+            assertEquals(crossed, IconPicker.iconFor(peer(relation, false, false)));
+            assertEquals(crossed, IconPicker.iconFor(peer(relation, true, true)));
+            assertEquals(crossed, IconPicker.iconFor(peer(relation, false, true)));
         }
     }
 
     @Test
     void iconsLiveUnderTheModsTextures() {
-        assertEquals("wynnvoicechat:textures/icons/party.png", IconPicker.PARTY.toString());
+        assertEquals("wynnvoicechat:textures/icons/speaker_off.png", IconPicker.SPEAKER_OFF.toString());
     }
 }

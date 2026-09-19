@@ -12,7 +12,7 @@ import wynnvoicechat.mod.session.Cue;
 
 /** Plays the cues from {@code assets/wynnvoicechat/sounds.json} on the Voice/Speech slider; at most one ring loop at a time. Render thread only. */
 public final class Sounds {
-    // ponytail: invites expire after 30 s on the relay and only the caller is told; cap the loops instead of adding a packet
+    // Safety net past the relay's 30 s invite expiry, in case its EXPIRED/NO_ANSWER never arrives
     private static final int MAX_LOOP_TICKS = 35 * 20;
 
     private Loop loop;
