@@ -43,6 +43,8 @@ fun main() {
     else log.warn("Discord moderation disabled: set {} to enable it", DiscordConfig.VARIABLES.joinToString(", "))
     val metrics = env("METRICS_PORT", "9102").toInt().takeIf { it != 0 }?.let { Metrics.start(env("METRICS_BIND", "127.0.0.1"), it) }
     server.start()
+    // ponytail: Pterodactyl stops Minecraft-style eggs by typing "stop" on stdin; exiting runs the shutdown hook
+    Thread { generateSequence(::readlnOrNull).firstOrNull { it.trim() == "stop" }?.let { System.exit(0) } }.apply { isDaemon = true }.start()
     Runtime.getRuntime().addShutdownHook(Thread {
         server.stop()
         discord?.stop()
