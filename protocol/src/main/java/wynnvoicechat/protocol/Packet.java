@@ -25,7 +25,11 @@ public sealed interface Packet {
 
     record Auth(String username, UUID uuid) implements Packet {}
 
-    record AuthResult(AuthStatus status) implements Packet {}
+    /**
+     * {@code termsVersion} is the relay's current terms of use version; the mod re-asks for consent when it is newer than
+     * what was accepted. {@code message} is the ban reason for {@code BANNED} and empty otherwise.
+     */
+    record AuthResult(AuthStatus status, int termsVersion, String message) implements Packet {}
 
     record Join(VoiceTier tier, String instance) implements Packet {}
 

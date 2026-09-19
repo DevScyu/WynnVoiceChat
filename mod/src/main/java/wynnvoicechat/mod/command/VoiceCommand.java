@@ -67,12 +67,19 @@ public final class VoiceCommand {
                             .then(literal("off").executes(context -> setHud(context, mod, false))))
                     .then(literal("who").executes(context -> who(context, mod)))
                     .then(literal("blocks").executes(context -> request(context, mod, new Packet.BlockList())))
+                    .then(literal("terms").executes(context -> openPage("terms")))
+                    .then(literal("privacy").executes(context -> openPage("privacy")))
                     .then(literal("enable").executes(context -> setEnabled(context, mod, true)))
                     .then(literal("disable").executes(context -> setEnabled(context, mod, false)))
                     .executes(VoiceCommand::usage));
             // redirect skips the target's own executes, so the bare alias needs usage again
             dispatcher.register(literal(VoiceMod.ALIAS).executes(VoiceCommand::usage).redirect(root));
         });
+    }
+
+    private static int openPage(String path) {
+        VoiceMod.openPage(path);
+        return 1;
     }
 
     private static int usage(CommandContext<FabricClientCommandSource> context) {

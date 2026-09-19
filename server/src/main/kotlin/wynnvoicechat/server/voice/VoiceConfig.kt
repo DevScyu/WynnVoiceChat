@@ -15,6 +15,8 @@ data class VoiceConfig(
     val ringBufferCapBytes: Long,
     /** null means open to everyone; otherwise only these players may authenticate */
     val allowedUuids: Set<UUID>? = null,
+    /** Announced to every client; raising it makes everyone accept the terms again on their next connection. */
+    val termsVersion: Int = 1,
 ) {
     init {
         require(!enabled || host.isNotBlank()) { "VOICE_HOST must be set when VOICE_ENABLED=true" }
@@ -38,6 +40,7 @@ data class VoiceConfig(
             reportDir = System.getenv("VOICE_REPORT_DIR") ?: "voice-reports",
             ringBufferCapBytes = (System.getenv("VOICE_RING_CAP_MB")?.toLongOrNull() ?: 512L) * 1024 * 1024,
             allowedUuids = parseUuids(System.getenv("VOICE_ALLOWED_UUIDS")),
+            termsVersion = System.getenv("TERMS_VERSION")?.toIntOrNull() ?: 1,
         )
 
         /** Comma-separated UUIDs; blank or unset means no allowlist. */

@@ -30,7 +30,7 @@ class PacketRoundTripTest {
                 new Hello(Protocol.VERSION, 20, "1.2.3"),
                 new AuthChallenge(serverId),
                 new Auth("Player_One", UUID.randomUUID()),
-                new AuthResult(AuthStatus.SESSION_UNAVAILABLE),
+                new AuthResult(AuthStatus.BANNED, 3, "slurs"),
                 new Join(VoiceTier.FRIENDS_AND_GUILD, "housing:Scyu_"),
                 new Secret(secret, "voice.example.org", 24454, 32.0, 1000, VoiceTier.FRIENDS_AND_GUILD),
                 new Update(VoiceTier.EVERYONE, "", true, true, false),
@@ -72,6 +72,11 @@ class PacketRoundTripTest {
         Set<Class<?>> declared = Set.of(Packet.class.getPermittedSubclasses());
         assertEquals(declared, sampled);
         assertEquals(21, declared.size());
+    }
+
+    @Test
+    void protocolVersionIsTwo() {
+        assertEquals(2, Protocol.VERSION, "terms version in AuthResult broke wire compatibility");
     }
 
     @Test

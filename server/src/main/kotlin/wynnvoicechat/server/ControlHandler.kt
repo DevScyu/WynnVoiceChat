@@ -96,14 +96,15 @@ class ControlHandler(
         }
         stage = Stage.VERIFYING
         sessions.hasJoined(auth.username, HexFormat.of().formatHex(serverId)).whenCompleteAsync({ verified, error ->
+            // ponytail: one indexed SQLite read per login on the event loop; move onto the fetcher's thread if logins pile up
+            val ban = if (error == null && verified == auth.uuid) voice.moderation.activeBan(auth.uuid) else null
             when {
                 error != null -> {
                     log.warn("Session server unavailable for {}: {}", auth.username, error.message)
                     refuse(ctx, AuthStatus.SESSION_UNAVAILABLE)
                 }
                 verified != auth.uuid -> refuse(ctx, AuthStatus.BAD_SESSION)
-                // ponytail: one indexed SQLite read per login on the event loop; move onto the fetcher's thread if logins pile up
-                voice.moderation.isBanned(auth.uuid) -> refuse(ctx, AuthStatus.BANNED)
+                ban != null -> refuse(ctx, AuthStatus.BANNED, ban.reason)
                 !voice.config.allows(auth.uuid) -> refuse(ctx, AuthStatus.NOT_ALLOWED)
                 else -> {
                     val verifiedPlayer = Player(auth.uuid, auth.username, modVersion) { ctx.writeAndFlush(it) }
@@ -111,7 +112,7 @@ class ControlHandler(
                     stage = Stage.READY
                     ctx.pipeline().get(ReadTimeoutHandler::class.java)?.let(ctx.pipeline()::remove)
                     authResults.getValue(AuthStatus.OK).increment()
-                    ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK))
+                    ctx.writeAndFlush(Packet.AuthResult(AuthStatus.OK, voice.config.termsVersion, ""))
                     voice.connected(verifiedPlayer)
                     wynn.guildOf(auth.uuid).thenAccept { guild ->
                         verifiedPlayer.guildId = guild?.uuid
@@ -124,10 +125,10 @@ class ControlHandler(
         }, ctx.executor())
     }
 
-    private fun refuse(ctx: ChannelHandlerContext, status: AuthStatus) {
+    private fun refuse(ctx: ChannelHandlerContext, status: AuthStatus, message: String = "") {
         authResults.getValue(status).increment()
         closeReason = CloseReason.AUTH_FAILED
-        ctx.writeAndFlush(Packet.AuthResult(status)).addListener(ChannelFutureListener.CLOSE)
+        ctx.writeAndFlush(Packet.AuthResult(status, voice.config.termsVersion, message)).addListener(ChannelFutureListener.CLOSE)
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {

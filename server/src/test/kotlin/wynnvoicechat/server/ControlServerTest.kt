@@ -79,7 +79,7 @@ class ControlServerTest {
         assertEquals(Protocol.SERVER_ID_BYTES, challenge.serverId.size)
 
         channel.writeAndFlush(Packet.Auth("Player", uuid))
-        assertEquals(Packet.AuthResult(AuthStatus.OK), received.poll(5, TimeUnit.SECONDS))
+        assertEquals(Packet.AuthResult(AuthStatus.OK, 1, ""), received.poll(5, TimeUnit.SECONDS))
         // AuthResult reaches the client before the server thread runs the onAuthenticated hook that moves the gauge
         assertEquals(1.0, awaitSample("voice_control_connections{state=\"authenticated\"}", 1.0))
         channel.close().sync()

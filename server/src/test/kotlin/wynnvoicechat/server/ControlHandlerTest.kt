@@ -76,8 +76,16 @@ class ControlHandlerTest {
     @Test
     fun `wrong protocol version is refused and closed`() {
         val ch = channel { uuid }
-        assertEquals(Packet.AuthResult(AuthStatus.VERSION_MISMATCH), ch.hello(version = Protocol.VERSION + 1))
+        assertEquals(Packet.AuthResult(AuthStatus.VERSION_MISMATCH, 1, ""), ch.hello(version = Protocol.VERSION + 1))
         assertFalse(ch.isOpen)
+    }
+
+    @Test
+    fun `auth result announces the relay's terms version`() {
+        voice = manager(config.copy(termsVersion = 7))
+        val ch = channel { uuid }
+        ch.hello()
+        assertEquals(Packet.AuthResult(AuthStatus.OK, 7, ""), ch.auth())
     }
 
     @Test
@@ -92,7 +100,7 @@ class ControlHandlerTest {
     fun `matching session authenticates`() {
         val ch = channel { uuid }
         val challenge = ch.hello() as Packet.AuthChallenge
-        assertEquals(Packet.AuthResult(AuthStatus.OK), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.OK, 1, ""), ch.auth())
         assertEquals("Player" to HexFormat.of().formatHex(challenge.serverId), fetched)
         assertTrue(ch.isOpen)
         assertEquals(uuid, authenticated?.uuid)
@@ -105,7 +113,7 @@ class ControlHandlerTest {
         val before = MetricsTest.sample(Metrics.scrape(), "voice_auth_total{result=\"bad_session\"}")!!.toDouble()
         val ch = channel { UUID.randomUUID() }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION, 1, ""), ch.auth())
         assertFalse(ch.isOpen)
         assertNull(authenticated)
         assertEquals(before + 1, MetricsTest.sample(Metrics.scrape(), "voice_auth_total{result=\"bad_session\"}")!!.toDouble())
@@ -116,7 +124,7 @@ class ControlHandlerTest {
     fun `no content from mojang is a bad session`() {
         val ch = channel { null }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION, 1, ""), ch.auth())
         assertFalse(ch.isOpen)
     }
 
@@ -124,7 +132,7 @@ class ControlHandlerTest {
     fun `fetcher failure is session unavailable`() {
         val ch = channel { throw IllegalStateException("mojang down") }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.SESSION_UNAVAILABLE), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.SESSION_UNAVAILABLE, 1, ""), ch.auth())
         assertFalse(ch.isOpen)
     }
 
@@ -132,7 +140,7 @@ class ControlHandlerTest {
     fun `invalid username never reaches mojang`() {
         val ch = channel { uuid }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION), ch.auth(name = "bad name!"))
+        assertEquals(Packet.AuthResult(AuthStatus.BAD_SESSION, 1, ""), ch.auth(name = "bad name!"))
         assertNull(fetched)
         assertFalse(ch.isOpen)
     }
@@ -158,7 +166,7 @@ class ControlHandlerTest {
         voice = manager(config.copy(enabled = false))
         val ch = channel { uuid }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.DISABLED), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.DISABLED, 1, ""), ch.auth())
         assertFalse(ch.isOpen)
     }
 
@@ -167,21 +175,21 @@ class ControlHandlerTest {
         voice = manager(config.copy(allowedUuids = setOf(UUID.randomUUID())))
         val ch = channel { uuid }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.NOT_ALLOWED), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.NOT_ALLOWED, 1, ""), ch.auth())
         assertFalse(ch.isOpen)
 
         voice = manager(config.copy(allowedUuids = setOf(uuid)))
         val allowed = channel { uuid }
         allowed.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.OK), allowed.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.OK, 1, ""), allowed.auth())
     }
 
     @Test
     fun `banned player is refused at auth`() {
-        transaction(moderation.db) { VoiceBansTable.insert { it[userId] = uuid; it[reason] = "r"; it[bannedBy] = "s"; it[bannedAt] = 0 } }
+        transaction(moderation.db) { VoiceBansTable.insert { it[userId] = uuid; it[reason] = "slurs in voice"; it[bannedBy] = "s"; it[bannedAt] = 0 } }
         val ch = channel { uuid }
         ch.hello()
-        assertEquals(Packet.AuthResult(AuthStatus.BANNED), ch.auth())
+        assertEquals(Packet.AuthResult(AuthStatus.BANNED, 1, "slurs in voice"), ch.auth(), "terms §7: the reason is shown in game")
         assertFalse(ch.isOpen)
     }
 

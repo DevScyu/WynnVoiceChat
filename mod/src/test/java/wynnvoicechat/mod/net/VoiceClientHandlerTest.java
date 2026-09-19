@@ -27,8 +27,8 @@ class VoiceClientHandlerTest {
 
     private final VoiceClient.Listener listener = new VoiceClient.Listener() {
         @Override
-        public void onAuthResult(AuthStatus status) {
-            results.add(status);
+        public void onAuthResult(Packet.AuthResult result) {
+            results.add(result.status());
         }
 
         @Override
@@ -67,7 +67,7 @@ class VoiceClientHandlerTest {
         assertEquals(List.of(HexFormat.of().formatHex(challenge().serverId())), joined);
         assertEquals(new Packet.Auth("Player", identity.uuid()), ch.readOutbound());
 
-        ch.writeInbound(new Packet.AuthResult(AuthStatus.OK));
+        ch.writeInbound(new Packet.AuthResult(AuthStatus.OK, 1, ""));
         assertEquals(List.of(AuthStatus.OK), results);
         assertTrue(ch.isOpen());
     }
@@ -97,7 +97,7 @@ class VoiceClientHandlerTest {
     @Test
     void refusalIsReported() {
         EmbeddedChannel ch = channel(joined::add);
-        ch.writeInbound(new Packet.AuthResult(AuthStatus.VERSION_MISMATCH));
+        ch.writeInbound(new Packet.AuthResult(AuthStatus.VERSION_MISMATCH, 1, ""));
         assertEquals(List.of(AuthStatus.VERSION_MISMATCH), results);
     }
 
@@ -107,7 +107,7 @@ class VoiceClientHandlerTest {
         Packet.Ended ended = new Packet.Ended(EndReason.TIMED_OUT, "bye");
         ch.writeInbound(ended);
         assertTrue(packets.isEmpty());
-        ch.writeInbound(new Packet.AuthResult(AuthStatus.OK));
+        ch.writeInbound(new Packet.AuthResult(AuthStatus.OK, 1, ""));
         ch.writeInbound(ended);
         assertEquals(List.of(ended), packets);
     }

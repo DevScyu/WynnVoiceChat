@@ -33,7 +33,7 @@ public final class VoiceClient {
     }
 
     public interface Listener {
-        void onAuthResult(AuthStatus status);
+        void onAuthResult(Packet.AuthResult result);
 
         void onPacket(Packet packet);
 
@@ -115,7 +115,7 @@ public final class VoiceClient {
                 case Packet.AuthChallenge challenge -> answerChallenge(ctx, challenge);
                 case Packet.AuthResult result -> {
                     authenticated = result.status() == AuthStatus.OK;
-                    listener.onAuthResult(result.status());
+                    listener.onAuthResult(result);
                 }
                 default -> {
                     if (authenticated) listener.onPacket(packet);
@@ -136,8 +136,8 @@ public final class VoiceClient {
                     Throwable cause = error;
                     while (cause.getCause() != null) cause = cause.getCause();
                     LOG.warn("Mojang joinServer failed: {}", cause.toString());
-                    listener.onAuthResult(cause instanceof AuthenticationUnavailableException
-                            ? AuthStatus.SESSION_UNAVAILABLE : AuthStatus.BAD_SESSION);
+                    listener.onAuthResult(new Packet.AuthResult(cause instanceof AuthenticationUnavailableException
+                            ? AuthStatus.SESSION_UNAVAILABLE : AuthStatus.BAD_SESSION, 0, ""));
                     ctx.close();
                 } else {
                     ctx.writeAndFlush(new Packet.Auth(identity.username(), identity.uuid()));

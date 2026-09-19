@@ -12,8 +12,8 @@ import wynnvoicechat.protocol.VoiceTier;
 
 /** Persisted user choices plus the pure decisions derived from them; the screens and commands only mutate and save. */
 public final class VoiceConfig {
-    /** Bump when the consent notice changes materially; users must accept again. */
-    public static final int CONSENT_VERSION = 1;
+    /** No relay has announced a terms version yet: any acceptance counts. */
+    public static final int TERMS_UNKNOWN = 0;
 
     public enum Notice { NONE, CONSENT, EVERYONE_WARNING, GUILD_WARNING }
 
@@ -60,12 +60,13 @@ public final class VoiceConfig {
         Files.writeString(file, GSON.toJson(this));
     }
 
-    public boolean hasConsent() {
-        return consentVersion >= CONSENT_VERSION;
+    /** Consent is the terms version last accepted; the relay, not the jar, says which version is current. */
+    public boolean hasConsent(int relayTermsVersion) {
+        return consentVersion > 0 && consentVersion >= relayTermsVersion;
     }
 
-    public boolean canConnect() {
-        return enabled && hasConsent();
+    public boolean canConnect(int relayTermsVersion) {
+        return enabled && hasConsent(relayTermsVersion);
     }
 
     /** The rules screen is pointless while the relay caps the audience below EVERYONE. */
@@ -88,9 +89,9 @@ public final class VoiceConfig {
     }
 
     /** The consent notice is only worth showing to people who can actually use voice. */
-    public Notice pendingNotice(boolean svcInstalled, VoiceTier relayMaxTier) {
+    public Notice pendingNotice(boolean svcInstalled, VoiceTier relayMaxTier, int relayTermsVersion) {
         if (!enabled) return Notice.NONE;
-        if (!hasConsent()) return svcInstalled ? Notice.CONSENT : Notice.NONE;
+        if (!hasConsent(relayTermsVersion)) return svcInstalled ? Notice.CONSENT : Notice.NONE;
         if (needsEveryoneWarning(relayMaxTier)) return Notice.EVERYONE_WARNING;
         return needsGuildWarning() ? Notice.GUILD_WARNING : Notice.NONE;
     }

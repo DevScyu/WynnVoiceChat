@@ -34,6 +34,8 @@ public final class PacketCodec {
             case AuthResult p -> {
                 out.writeByte(3);
                 writeEnum(out, p.status());
+                writeVarInt(out, p.termsVersion());
+                writeString(out, p.message());
             }
             case Join p -> {
                 out.writeByte(4);
@@ -143,7 +145,7 @@ public final class PacketCodec {
             case 0 -> new Hello(readVarInt(in), readVarInt(in), readString(in));
             case 1 -> new AuthChallenge(readBytes(in, Protocol.SERVER_ID_BYTES));
             case 2 -> new Auth(readString(in), readUuid(in));
-            case 3 -> new AuthResult(readEnum(in, AuthStatus.class));
+            case 3 -> new AuthResult(readEnum(in, AuthStatus.class), readVarInt(in), readString(in));
             case 4 -> new Join(readEnum(in, VoiceTier.class), readString(in));
             case 5 -> new Secret(readBytes(in, Protocol.SECRET_BYTES), readString(in), readVarInt(in), in.readDouble(), readVarInt(in), readEnum(in, VoiceTier.class));
             case 6 -> new Update(readEnum(in, VoiceTier.class), readString(in), in.readBoolean(), in.readBoolean(), in.readBoolean());

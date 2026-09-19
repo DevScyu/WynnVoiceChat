@@ -1,6 +1,7 @@
 package wynnvoicechat.mod;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -53,6 +54,7 @@ public final class VoiceMod implements ClientModInitializer {
     public static final String MOD_ID = "wynnvoicechat";
     public static final String COMMAND = "/" + MOD_ID;
     public static final String ALIAS = "wvc";
+    public static final String SITE = "https://wynnvoicechat.com/";
     private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
     private static final int TICKS_PER_POSITION = 5; // 4 Hz
     private static final long RECONNECT_MS = 30_000;
@@ -76,6 +78,10 @@ public final class VoiceMod implements ClientModInitializer {
     private boolean refused;
     private boolean warnedSvcVersion;
     private boolean svcDisabled;
+    /** What the relay last announced; consent is measured against it, so a bump on the relay re-asks everyone. */
+    private int relayTermsVersion = VoiceConfig.TERMS_UNKNOWN;
+    /** The Join held back because the relay's terms are newer than what was accepted; runs on acceptance. */
+    private Runnable heldJoin;
     private int tickCounter;
     private long lastConnectAttempt;
     private int positionCounter;
@@ -163,7 +169,7 @@ public final class VoiceMod implements ClientModInitializer {
         if (enteredWorld) showNotice(pendingNotice());
         if (client != null && !state.world().equals(connectedWorld)) disconnect();
         if (client == null) {
-            if (!refused && config.canConnect()) connect(state);
+            if (!refused && config.canConnect(relayTermsVersion)) connect(state);
         } else if (session != null) {
             session.setInstance(state.instance());
         }
@@ -180,13 +186,17 @@ public final class VoiceMod implements ClientModInitializer {
 
     private ConsentScreen screenFor(Notice notice) {
         return switch (notice) {
-            case CONSENT -> ConsentScreen.consent(accepted -> {
+            case CONSENT -> ConsentScreen.consent(config.consentVersion > 0 ? relayTermsVersion : VoiceConfig.TERMS_UNKNOWN, accepted -> {
                 if (!accepted) {
                     setEnabled(false);
                     return;
                 }
-                config.consentVersion = VoiceConfig.CONSENT_VERSION;
+                config.consentVersion = Math.max(1, relayTermsVersion);
                 setEnabled(true);
+                if (heldJoin != null) {
+                    heldJoin.run();
+                    heldJoin = null;
+                }
             });
             case EVERYONE_WARNING -> ConsentScreen.everyoneWarning(accepted -> {
                 if (accepted) {
@@ -214,7 +224,7 @@ public final class VoiceMod implements ClientModInitializer {
 
     private void connectIfAllowed() {
         WorldTracker.State state = worldTracker.state();
-        if (client == null && !refused && state.onWorld() && config.canConnect()) connect(state);
+        if (client == null && !refused && state.onWorld() && config.canConnect(relayTermsVersion)) connect(state);
     }
 
     public void setTier(VoiceTier tier) {
@@ -227,7 +237,7 @@ public final class VoiceMod implements ClientModInitializer {
     }
 
     private Notice pendingNotice() {
-        return config.pendingNotice(svcInstalled, relayMaxTier());
+        return config.pendingNotice(svcInstalled, relayMaxTier(), relayTermsVersion);
     }
 
     /** The cap learnt from the current session's {@code Secret}; assumed uncapped until then. */
@@ -256,6 +266,10 @@ public final class VoiceMod implements ClientModInitializer {
 
     public boolean dnd() {
         return config.dnd;
+    }
+
+    public static void openPage(String path) {
+        Util.getPlatform().openUri(URI.create(SITE + path));
     }
 
     public void setSounds(boolean on) {
@@ -335,12 +349,22 @@ public final class VoiceMod implements ClientModInitializer {
         VoiceClient[] self = new VoiceClient[1];
         self[0] = client = new VoiceClient(identity, joiner, new VoiceClient.Listener() {
             @Override
-            public void onAuthResult(AuthStatus status) {
-                LOG.info("Relay auth result: {}", status);
+            public void onAuthResult(Packet.AuthResult result) {
+                LOG.info("Relay auth result: {}", result);
                 minecraft.execute(() -> {
                     if (client != self[0]) return;
-                    if (status == AuthStatus.OK) newSession.onAuthenticated(state.world(), worldTracker.state().instance());
-                    else refuse(status);
+                    if (result.status() != AuthStatus.OK) {
+                        refuse(result.status(), result.message());
+                        return;
+                    }
+                    relayTermsVersion = result.termsVersion();
+                    Runnable join = () -> newSession.onAuthenticated(state.world(), worldTracker.state().instance());
+                    if (config.hasConsent(relayTermsVersion)) {
+                        join.run();
+                    } else {
+                        heldJoin = join;
+                        showNotice(pendingNotice());
+                    }
                 });
             }
 
@@ -365,7 +389,7 @@ public final class VoiceMod implements ClientModInitializer {
         client.connect(config.relayHost, config.relayPort);
     }
 
-    private void refuse(AuthStatus status) {
+    private void refuse(AuthStatus status, String message) {
         if (refused || client == null) return;
         refused = true;
         String reason = switch (status) {
@@ -377,11 +401,14 @@ public final class VoiceMod implements ClientModInitializer {
             case SESSION_UNAVAILABLE -> "sessionUnavailable";
             case OK -> throw new IllegalArgumentException();
         };
-        chat(Component.translatable("wynnvoicechat.unavailable", Component.translatable("wynnvoicechat.unavailable." + reason)), ChatFormatting.RED);
+        MutableComponent why = Component.translatable("wynnvoicechat.unavailable." + reason);
+        if (!message.isBlank()) why.append(": " + message);
+        chat(Component.translatable("wynnvoicechat.unavailable", why), ChatFormatting.RED);
         disconnect();
     }
 
     private void disconnect() {
+        heldJoin = null;
         if (session != null) session.onClosed();
         session = null;
         connectedWorld = null;
