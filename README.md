@@ -154,8 +154,24 @@ docker run -d --name wynnvoicechat-relay \
   -p 9100:9100 -p 24454:24454/udp -p 127.0.0.1:9101:9101 \
   -v wynnvoicechat-data:/data \
   -e VOICE_ENABLED=true -e VOICE_HOST=voice.example.com \
+  --log-opt max-size=1m --log-opt max-file=14 \
   wynnvoicechat-relay
 ```
+
+The log options cap the container log at 14 files of 1 MB, about a day each on a busy relay, so
+logs last roughly the two weeks the [privacy notice](https://wynnvoicechat.com/privacy) states.
+Three more things the notice relies on:
+
+* **Log level stays `info`**, the shipped default. Do not run production with
+  `-Dorg.slf4j.simpleLogger.defaultLogLevel=debug`: connection-level `debug` lines include client
+  IP addresses, and nothing at `info` or above does (checked by grepping the relay sources for
+  address-carrying log calls).
+* **Pterodactyl** does not use the options above: Wings sets the container log driver itself from
+  `docker.log_config` in its `config.yml` (default `local`, 5 MB, one file), so that is where the
+  cap lives. The panel console only shows what the container currently holds; it is not a
+  persistent log.
+* **The reverse proxy** in front of `/discord` (below) writes its own access log with client IPs.
+  Give it the same cap, e.g. `logrotate` with `rotate 14` and `daily` for nginx.
 
 Open TCP `CONTROL_PORT` and UDP `VOICE_PORT` to the internet. `HTTP_PORT` only ever serves
 `POST /discord` and must sit behind a reverse proxy that terminates HTTPS and forwards nothing
@@ -175,6 +191,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | `VOICE_EVERYONE_ENABLED`            | `false`   | Allow the everyone audience; otherwise tiers are capped at friends & guild |
 | `VOICE_RING_CAP_MB`                 | `512`     | Total memory kept for report audio evidence         |
 | `VOICE_REPORT_DIR`                  | `voice-reports` | Directory report audio is written to, one folder per report id |
+| `TERMS_VERSION`                     | `1`       | Terms of use version announced to every client; raise it and everyone re-accepts on their next connection |
 | `DB_PATH`                           | `voice.db` | SQLite file holding blocks, bans and reports; created on startup |
 | `HTTP_PORT`                         | `9101`    | HTTP port serving only `POST /discord`, the Discord interactions endpoint |
 | `METRICS_BIND` / `METRICS_PORT`     | `127.0.0.1` / `9102` | Prometheus `GET /metrics`; `0` disables. No token, so keep it on loopback (or a private interface) and never behind the public proxy |
@@ -226,7 +243,15 @@ scrape_configs:
 Unique-player questions (daily/weekly actives, retention) come from the `voice_sessions` table
 in `DB_PATH` instead, e.g. with Grafana's SQLite datasource:
 `SELECT date(started_at / 1000, 'unixepoch') AS day, count(DISTINCT uuid) FROM voice_sessions GROUP BY 1`.
-Rows older than 90 days are pruned automatically.
+Rows older than 90 days are pruned automatically, as the privacy notice promises; the same
+once-a-minute pass deletes a report's audio clips 30 days after the report, a temporary ban's row
+12 months after it expired (permanent bans stay) and a report's row 12 months after it was filed.
+
+#### Release checklist
+
+- When the terms change, bump `TERMS_VERSION` on the relay and `version`/`effective` in the
+  website's terms page together; the mod shows "The terms have changed (version N)" and holds voice
+  off until the player accepts again.
 
 #### Discord application setup
 
@@ -249,7 +274,8 @@ Rows older than 90 days are pruned automatically.
 Each report then appears in the channel as an embed with both audio files and `Ban 7d`,
 `Ban 30d`, `Ban permanent` and `Dismiss` buttons; `/voice ban <player> [days] [reason]`,
 `/voice unban <player>`, `/voice bans` and `/voice blocks <player>` cover the rest. A ban drops
-the player's live session within a minute and refuses their next connection with `BANNED`.
+the player's live session within a minute and refuses their next connection with `BANNED`; both
+tell the player the ban reason, as the terms promise.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -278,9 +304,10 @@ Minecraft directory, created on first launch:
 ```
 
 Nothing happens until you accept the consent notice, which appears on your first world join
-when Simple Voice Chat is installed. Accepting stores `consentVersion`; cancelling (or closing
-the notice) sets `enabled` to `false`. Every change made in game is written to the file
-immediately.
+when Simple Voice Chat is installed. Accepting stores the relay's terms version in
+`consentVersion`; "Not now" (or closing the notice) sets `enabled` to `false`. When the relay later
+announces a newer `TERMS_VERSION`, the notice comes back with "The terms have changed" and voice
+stays off until you accept it again. Every change made in game is written to the file immediately.
 
 Joining a world connects to the relay and authenticates through Mojang. If the relay refuses
 the connection you get one chat line explaining why; leaving the world closes the connection.
@@ -307,6 +334,7 @@ friend, gold guild, white stranger) and crossed out in red when you cannot hear 
 | `/wynnvoicechat block <player>`                               | Never hear or be heard by that player, on any audience; also runs `/ignore add` |
 | `/wynnvoicechat unblock <player>`                             | Lift a block; also runs `/ignore remove`                  |
 | `/wynnvoicechat report <player> [reason]`                     | Report someone you heard in the last two minutes          |
+| `/wynnvoicechat terms` / `privacy`                            | Open the terms of use or the privacy notice in your browser |
 | `/wynnvoicechat enable`                                       | Turn voice on (shows the consent notice if still pending) |
 | `/wynnvoicechat disable`                                      | Turn voice off and disconnect                             |
 
