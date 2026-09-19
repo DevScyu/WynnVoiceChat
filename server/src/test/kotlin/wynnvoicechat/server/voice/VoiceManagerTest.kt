@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -974,5 +975,39 @@ class VoiceManagerTest {
         now += 91L * 24 * 60 * 60_000
         manager.maintain()
         assertEquals(0, transaction(moderation.db) { VoiceSessionsTable.selectAll().count() })
+    }
+
+    @Test
+    fun `maintain removes report clips after 30 days and tolerates a missing directory`() {
+        val day = 24 * 60 * 60_000L
+        val a = player("A")
+        val s = player("S", Position(10f, 100f, 0f))
+        val secretA = connect(a, addrA)
+        val secretS = connect(s, addrB)
+        fun fileReport(): Int {
+            manager.onDatagram(addrB, clientDatagram(s, secretS, SvcPacket.Mic(byteArrayOf(0x08), 1, false)))
+            manager.onDatagram(addrA, clientDatagram(a, secretA, SvcPacket.Mic(byteArrayOf(0x08), 1, false)))
+            manager.report(a, "S", "spam")
+            val result = last<Packet.Result>(a)
+            assertTrue(result.ok, result.message)
+            return result.message.removePrefix("Report #").substringBefore(' ').toInt()
+        }
+
+        val id = fileReport()
+        val dir = File(reportDir, id.toString())
+        now += 29 * day
+        manager.maintain()
+        assertTrue(File(dir, "target.opus").exists(), "29 days: clips stay")
+
+        now += 2 * day
+        manager.maintain()
+        assertFalse(dir.exists(), "31 days: clips gone")
+        assertNotNull(moderation.reportParties(id), "row stays readable")
+
+        val second = fileReport()
+        File(reportDir, second.toString()).deleteRecursively()
+        now += 31 * day
+        manager.maintain()
+        assertNotNull(moderation.reportParties(second))
     }
 }

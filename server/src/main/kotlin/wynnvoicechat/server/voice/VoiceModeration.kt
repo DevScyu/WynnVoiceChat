@@ -13,6 +13,7 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
+import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -45,8 +46,8 @@ data class Ban(val userId: UUID, val reason: String, val bannedBy: String, val e
 class GuildMute(val guildId: UUID, val expiresAt: Long?)
 
 enum class DbOp {
-    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, ACTIVE_BANS, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
-    ATTACH_AUDIO, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS,
+    INIT, BLOCK, UNBLOCK, GUILD_MUTE, GUILD_UNMUTE, BAN, UNBAN, ACTIVE_BAN_ROWS, CREATE_REPORT, REPORT_PARTIES, OPEN_REPORTS, MARK_HANDLED,
+    ATTACH_AUDIO, PENDING_OUTCOMES, MARK_NOTIFIED, RECORD_SESSION, END_SESSION, PRUNE_SESSIONS, PRUNE_BANS, PRUNE_REPORTS, REPORTS_WITH_CLIPS,
 }
 
 /**
@@ -134,7 +135,10 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
-    fun isBanned(userId: UUID): Boolean = activeBans(listOf(userId)).isNotEmpty()
+    fun isBanned(userId: UUID): Boolean = activeBan(userId) != null
+
+    /** The ban currently keeping [userId] off voice, if any; the mod shows its reason. */
+    fun activeBan(userId: UUID): Ban? = activeBanRows(listOf(userId)).firstOrNull()
 
     fun ban(userId: UUID, reason: String, bannedBy: String, expiresAt: Long?) {
         val now = clock()
@@ -157,29 +161,18 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
         }
     }
 
-    fun activeBanRows(): List<Ban> {
+    fun activeBanRows(userIds: Collection<UUID>? = null): List<Ban> {
         val now = clock()
         return db(DbOp.ACTIVE_BAN_ROWS) {
             VoiceBansTable.selectAll()
                 .where { VoiceBansTable.liftedAt.isNull() and (VoiceBansTable.expiresAt.isNull() or (VoiceBansTable.expiresAt greater now)) }
+                .apply { if (userIds != null) andWhere { VoiceBansTable.userId inList userIds } }
                 .map { Ban(it[VoiceBansTable.userId], it[VoiceBansTable.reason], it[VoiceBansTable.bannedBy], it[VoiceBansTable.expiresAt]) }
         }
     }
 
-    fun activeBans(userIds: Collection<UUID>): Set<UUID> {
-        if (userIds.isEmpty()) return emptySet()
-        val now = clock()
-        return db(DbOp.ACTIVE_BANS) {
-            VoiceBansTable.selectAll()
-                .where {
-                    (VoiceBansTable.userId inList userIds) and
-                        VoiceBansTable.liftedAt.isNull() and
-                        (VoiceBansTable.expiresAt.isNull() or (VoiceBansTable.expiresAt greater now))
-                }
-                .map { it[VoiceBansTable.userId] }
-                .toSet()
-        }
-    }
+    fun activeBans(userIds: Collection<UUID>): Set<UUID> =
+        if (userIds.isEmpty()) emptySet() else activeBanRows(userIds).map { it.userId }.toSet()
 
     fun createReport(report: NewReport): Int {
         val now = clock()
@@ -274,6 +267,22 @@ class VoiceModeration(val db: Database, private val clock: () -> Long = System::
 
     fun pruneSessions(startedBefore: Long) {
         db(DbOp.PRUNE_SESSIONS) { VoiceSessionsTable.deleteWhere { startedAt less startedBefore } }
+    }
+
+    /** Deletes bans that expired before [expiredBefore]; permanent bans have no expiry and stay. Returns the count. */
+    fun pruneBans(expiredBefore: Long): Int = db(DbOp.PRUNE_BANS) {
+        VoiceBansTable.deleteWhere { expiresAt.isNotNull() and (expiresAt less expiredBefore) }
+    }
+
+    fun pruneReports(createdBefore: Long): Int = db(DbOp.PRUNE_REPORTS) {
+        VoiceReportsTable.deleteWhere { createdAt less createdBefore }
+    }
+
+    /** Reports filed before [createdBefore] whose clips are still on record; [attachAudio] with nulls once the files are gone. */
+    fun reportsWithClipsBefore(createdBefore: Long): List<Int> = db(DbOp.REPORTS_WITH_CLIPS) {
+        VoiceReportsTable.selectAll()
+            .where { (VoiceReportsTable.createdAt less createdBefore) and (VoiceReportsTable.reporterAudioPath.isNotNull() or VoiceReportsTable.targetAudioPath.isNotNull()) }
+            .map { it[VoiceReportsTable.id].value }
     }
 
     companion object {

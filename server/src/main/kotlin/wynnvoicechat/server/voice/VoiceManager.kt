@@ -146,7 +146,11 @@ class VoiceManager(
         private const val UNAUTH_IGNORE_MS = 10 * 60_000L
         private const val LEFT_GRACE_MS = 60_000L
         private const val INVITE_TIMEOUT_MS = 30_000L
-        private const val SESSION_RETENTION_MS = 90L * 24 * 60 * 60_000
+        private const val DAY_MS = 24 * 60 * 60_000L
+        // The privacy notice promises these three windows; change them together
+        private const val SESSION_RETENTION_MS = 90 * DAY_MS
+        private const val CLIP_RETENTION_MS = 30 * DAY_MS
+        private const val RECORD_RETENTION_MS = 365 * DAY_MS
     }
 
     fun start() {
@@ -537,7 +541,8 @@ class VoiceManager(
         if (!limiter.tryAcquire(now)) {
             ignoredIpsUntil[ip] = now + UNAUTH_IGNORE_MS
             ignoredIps.increment()
-            logger.warn("Ignoring voice datagrams from {} for {} minutes", ip, UNAUTH_IGNORE_MS / 60_000)
+            // debug: the IP must stay out of production logs (privacy notice); voice_udp_ignored_ips_total counts it
+            logger.debug("Ignoring voice datagrams from {} for {} minutes", ip, UNAUTH_IGNORE_MS / 60_000)
         }
     }
 
@@ -639,6 +644,18 @@ class VoiceManager(
         }, true)
     }
 
+    private fun prune(now: Long) {
+        moderation.pruneSessions(now - SESSION_RETENTION_MS)
+        // A directory that will not delete keeps its row's paths, so the next pass tries again
+        val clips = moderation.reportsWithClipsBefore(now - CLIP_RETENTION_MS).count { id ->
+            val dir = File(config.reportDir, id.toString())
+            (!dir.exists() || dir.deleteRecursively()).also { gone -> if (gone) moderation.attachAudio(id, null, null) }
+        }
+        val bans = moderation.pruneBans(now - RECORD_RETENTION_MS)
+        val reports = moderation.pruneReports(now - RECORD_RETENTION_MS)
+        if (clips + bans + reports > 0) logger.info("Pruned {} reports' clips, {} expired bans, {} report records", clips, bans, reports)
+    }
+
     fun maintain() {
         val now = clock()
         // ponytail: the failure window is one minute, so a wholesale clear every maintain loses nothing
@@ -650,9 +667,9 @@ class VoiceManager(
         for (ban in bans) {
             val session = sessions.remove(ban.userId) ?: continue
             end(session, SessionEnd.BANNED, now)
-            session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat"))
+            session.player.send(Packet.Ended(EndReason.BANNED, "You are banned from voice chat" + ban.reason.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()))
         }
-        moderation.pruneSessions(now - SESSION_RETENTION_MS)
+        prune(now)
         var total = sessions.values.sumOf { it.speech.bytes }
         if (total <= config.ringBufferCapBytes) return
         for (session in sessions.values.sortedBy { it.lastActivity }) {

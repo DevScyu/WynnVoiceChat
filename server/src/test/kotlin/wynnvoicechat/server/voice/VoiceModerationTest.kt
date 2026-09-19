@@ -118,4 +118,42 @@ class VoiceModerationTest {
         assertEquals(now, row[VoiceReportsTable.notifiedAt])
         assertEquals(alice to bob, moderation.reportParties(id))
     }
+
+    private val day = 24 * 60 * 60_000L
+
+    private fun ban(user: UUID, expiresAt: Long?) = transaction(db) {
+        VoiceBansTable.insert { it[userId] = user; it[reason] = "r"; it[bannedBy] = "staff"; it[bannedAt] = now - 400 * day; it[VoiceBansTable.expiresAt] = expiresAt }
+    }
+
+    @Test
+    fun `bans expired over a year ago are pruned, permanent ones never`() {
+        ban(alice, now - 366 * day)
+        ban(bob, now - 364 * day)
+        val permanent = UUID.randomUUID()
+        ban(permanent, null)
+
+        assertEquals(1, moderation.pruneBans(now - 365 * day))
+
+        val left = transaction(db) { VoiceBansTable.selectAll().map { it[VoiceBansTable.userId] }.toSet() }
+        assertEquals(setOf(bob, permanent), left)
+    }
+
+    @Test
+    fun `report rows older than the cutoff are pruned and clips expire separately`() {
+        val old = moderation.createReport(NewReport(alice, bob, "", "", "", null, null, emptyList(), null, null))
+        moderation.attachAudio(old, "/r/$old/reporter.opus", "/r/$old/target.opus")
+        now += 31 * day
+        val recent = moderation.createReport(NewReport(alice, bob, "", "", "", null, null, emptyList(), null, null))
+        moderation.attachAudio(recent, null, "/r/$recent/target.opus")
+
+        assertEquals(listOf(old), moderation.reportsWithClipsBefore(now - 30 * day))
+        moderation.attachAudio(old, null, null)
+        assertEquals(emptyList(), moderation.reportsWithClipsBefore(now - 30 * day), "detached clips are not listed again")
+        assertEquals(alice to bob, moderation.reportParties(old), "row outlives its clips")
+
+        now += 335 * day
+        assertEquals(1, moderation.pruneReports(now - 365 * day))
+        assertNull(moderation.reportParties(old))
+        assertEquals(alice to bob, moderation.reportParties(recent))
+    }
 }
