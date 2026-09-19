@@ -5,8 +5,7 @@ loader *Fabric*, game version *1.21.11*, environment *client only*, license *LGP
 categories *social* and *utility*, source and issues links to the GitHub repository, Discord
 link from the README contact section.
 
-**Icon: still to be produced** (Modrinth wants a square PNG, 512×512 or larger). Nothing in the
-repository is the icon yet.
+Icon: `docs/brand/icon-512.png`. Summary field: *Voice chat for Wynncraft parties, guilds and friends.*
 
 ---
 
@@ -61,3 +60,7 @@ The mod only activates on `wynncraft.com`; on any other server it does nothing.
 
 WynnVoiceChat is free software under the LGPL-3.0-only license. The relay is open source too and
 anyone can run their own; see the repository README.
+
+---
+
+WynnVoiceChat is an independent, community-made mod. It is not affiliated with, endorsed by, or part of Wynncraft, Wynntils, or Simple Voice Chat.

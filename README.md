@@ -10,10 +10,12 @@
 
 <br />
 <div align="center">
-<h3 align="center">WynnVoiceChat</h3>
+  <img src="docs/brand/icon-512.png" alt="" width="128" height="128">
+  <br />
+  <img src="docs/brand/wordmark.png" alt="WynnVoiceChat" width="316" height="64">
 
   <p align="center">
-    Proximity voice chat for Wynncraft, powered by Simple Voice Chat.
+    Voice chat for Wynncraft parties, guilds and friends.
     <br />
     <br />
     <a href="https://github.com/DevScyu/WynnVoiceChat/issues/new?labels=bug">Report Bug</a>
@@ -429,6 +431,8 @@ Project link: [https://github.com/DevScyu/WynnVoiceChat](https://github.com/DevS
 * [Simple Voice Chat][svc-url], the audio engine this project builds on
 * [Contributor Covenant](https://www.contributor-covenant.org)
 * [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+
+WynnVoiceChat is an independent, community-made mod. It is not affiliated with, endorsed by, or part of Wynncraft, Wynntils, or Simple Voice Chat.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

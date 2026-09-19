@@ -3,7 +3,8 @@
   "id": "wynnvoicechat",
   "version": "${version}",
   "name": "WynnVoiceChat",
-  "description": "Simple Voice Chat on Wynncraft.",
+  "description": "Voice chat for Wynncraft parties, guilds and friends.",
+  "icon": "assets/wynnvoicechat/icon.png",
   "license": "LGPL-3.0-only",
   "environment": "client",
   "entrypoints": {

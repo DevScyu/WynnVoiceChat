@@ -37,7 +37,7 @@ import wynnvoicechat.protocol.Packet;
  */
 public final class CallOverlay implements HudElement {
     private static final Identifier ID = Identifier.fromNamespaceAndPath(VoiceMod.MOD_ID, "call");
-    private static final Identifier PANEL = Identifier.withDefaultNamespace("toast/system");
+    private static final Identifier PANEL = Identifier.withDefaultNamespace("toast/advancement");
     private static final Identifier HANGUP = Identifier.fromNamespaceAndPath(VoiceMod.MOD_ID, "call/hangup");
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(Identifier.fromNamespaceAndPath(VoiceMod.MOD_ID, "voice"));
     private static final int TOP = 36;
@@ -46,7 +46,7 @@ public final class CallOverlay implements HudElement {
     private static final int ICON = 16;
     private static final int PANEL_WIDTH = 160;
     private static final int PANEL_HEIGHT = 32;
-    private static final int PANEL_LEFT_BORDER = 17;
+    private static final int PANEL_INSET = 8;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int TITLE = 0xFFFFFF00;
     private static final int PILL = 0x80000000;
@@ -112,12 +112,12 @@ public final class CallOverlay implements HudElement {
         Component title = Component.translatable("wynnvoicechat.call.incoming", peer);
         Component acceptLabel = Component.translatable("wynnvoicechat.hud.accept");
         Component declineLabel = Component.translatable("wynnvoicechat.hud.decline");
-        int textX = PANEL_LEFT_BORDER + ICON + PAD;
+        int textX = PANEL_INSET + ICON + PAD;
         int hints = badgeWidth(font, accept) + 2 + font.width(acceptLabel) + PAD * 2 + badgeWidth(font, decline) + 2 + font.width(declineLabel);
         int width = Math.max(PANEL_WIDTH, textX + Math.max(font.width(title), hints) + PAD);
         int x = graphics.guiWidth() - MARGIN - width;
         graphics.blitSprite(RenderPipelines.GUI_TEXTURED, PANEL, x, TOP, width, PANEL_HEIGHT);
-        face().draw(graphics, x + PANEL_LEFT_BORDER, TOP + (PANEL_HEIGHT - ICON) / 2);
+        face().draw(graphics, x + PANEL_INSET, TOP + (PANEL_HEIGHT - ICON) / 2);
         graphics.drawString(font, title, x + textX, TOP + 7, TITLE, false);
         int hintX = x + textX;
         hintX = badge(graphics, font, accept, hintX, TOP + 18) + 2;
