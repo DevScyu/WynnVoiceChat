@@ -47,13 +47,11 @@ WynnVoiceChat is a small Fabric client mod plus a relay server: the mod points y
 Simple Voice Chat installation at the relay, and the relay routes audio between players on
 the same Wynncraft world.
 
-* **Opt-in.** Voice is off until you accept the consent screen. You only hear players who
-  opted in too.
-* **Proximity and relationship based.** You hear players on your world within range, and only
-  those who chose to be heard by you: party, friends & guild, or everyone.
-* **Moderated.** Block anyone, report with audio evidence, and bans are enforced by the relay.
-* **No accounts.** The relay verifies you through Mojang's session server, the same way a
-  Minecraft server does.
+Voice is off until you accept the consent screen, and you only hear players who opted in too.
+You hear players on your world within range, and only those who chose to be heard by you:
+party, friends & guild, or everyone. You can block anyone and report with audio evidence, and
+bans are enforced by the relay. There are no accounts: the relay verifies you through Mojang's
+session server, the same way a Minecraft server does.
 
 WynnVoiceChat does not replace Simple Voice Chat; you install both.
 

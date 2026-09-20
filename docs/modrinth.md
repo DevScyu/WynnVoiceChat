@@ -20,13 +20,13 @@ WynnVoiceChat does not replace Simple Voice Chat; you install both. Simple Voice
 
 ### How it works
 
-- **Opt-in.** Voice is off until you read and accept the notice on your first world join. You only ever hear players who opted in too.
-- **Proximity.** You hear players on your world within 32 blocks (whispering halves it), matching the housing plot you are on.
-- **Audience.** Choose who may hear you with `/wynnvoicechat tier` (`/wvc` is a short alias): your **party** (default), your **friends and guild**, or **everyone** nearby. Party members hear each other anywhere.
-- **Who is on voice.** A speaker icon on the nameplate, tinted by relation: green party, blue friend, yellow guild, white stranger.
-- **Guild channel.** `/wvc guild on` lets you hear and be heard by guild members anywhere, in a read-only group in Simple Voice Chat.
-- **Moderation.** `/wvc block <player>` silences someone in both directions. `/wvc report <player> [reason]` reports someone you heard in the last two minutes. `/wvc disable` turns everything off.
-- **No accounts.** The relay verifies you through Mojang's session server, the same way a Minecraft server does when you join it.
+- Voice is off until you read and accept the notice on your first world join. You only ever hear players who opted in too.
+- You hear players on your world within 32 blocks (whispering halves it), matching the housing plot you are on.
+- Choose who may hear you with `/wynnvoicechat tier` (`/wvc` is a short alias): your party (default), your friends and guild, or everyone nearby. Party members hear each other anywhere.
+- A speaker icon on the nameplate, tinted by relation: green party, blue friend, yellow guild, white stranger.
+- `/wvc guild on` lets you hear and be heard by guild members anywhere, in a read-only group in Simple Voice Chat.
+- `/wvc block <player>` silences someone in both directions. `/wvc report <player> [reason]` reports someone you heard in the last two minutes. `/wvc disable` turns everything off.
+- The relay verifies you through Mojang's session server, the same way a Minecraft server does when you join it.
 
 The mod only activates on `wynncraft.com`; on any other server it does nothing.
 
@@ -42,12 +42,12 @@ The mod only activates on `wynncraft.com`; on any other server it does nothing.
 
 <p align="center"><img src="https://cdn.modrinth.com/data/EqqrBoe4/images/0775c1f08864df3fb26e7c69a61ca2f96264a73a.png" alt="The in-game notice you accept before voice turns on: it states the two-minute speech buffer and links the terms, rules and privacy notice" width="640"></p>
 
-- **Identity.** On connect the relay confirms your Minecraft account with Mojang's session server. There is no registration, password or e-mail.
-- **Position.** While voice is on, your position and world go to the relay so audio reaches nearby players. They are not stored.
-- **Friends and guild.** The mod reads your friend list from `/friend list` and sends it to the relay; the relay looks your guild up on the public Wynncraft API.
-- **Audio.** Your last two minutes of speech are held in the relay's memory only. They are written out solely when a report is made, and then the report, including that audio and the reporter's own last two minutes, goes to volunteer moderators in a private Discord channel. Clips are deleted after 30 days.
-- **Reports go to us, not to Wynncraft.** Wynncraft treats voice on this service like a private call. Report in game, or e-mail safety@wynnvoicechat.com if you are not a player.
-- **Bans** are for the WynnVoiceChat relay as a whole and are enforced by the relay.
+- On connect the relay confirms your Minecraft account with Mojang's session server. There is no registration, password or e-mail.
+- While voice is on, your position and world go to the relay so audio reaches nearby players. They are not stored.
+- The mod reads your friend list from `/friend list` and sends it to the relay; the relay looks your guild up on the public Wynncraft API.
+- Your last two minutes of speech are held in the relay's memory only. They are written out solely when a report is made, and then the report, including that audio and the reporter's own last two minutes, goes to volunteer moderators in a private Discord channel. Clips are deleted after 30 days.
+- Reports go to us, not to Wynncraft. Wynncraft treats voice on this service like a private call. Report in game, or e-mail safety@wynnvoicechat.com if you are not a player.
+- Bans are for the WynnVoiceChat relay as a whole and are enforced by the relay.
 
 Full details: [Privacy notice](https://wynnvoicechat.com/privacy), [Terms of use](https://wynnvoicechat.com/terms), [Community rules](https://wynnvoicechat.com/rules). You must be 13 or older to use voice.
 
