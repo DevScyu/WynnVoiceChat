@@ -2,11 +2,13 @@ package wynnvoicechat.mod.svc;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import de.maxhenkel.voicechat.VoicechatClient;
 import de.maxhenkel.voicechat.api.VoicechatPlugin;
 import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophoneMuteEvent;
 import de.maxhenkel.voicechat.api.events.NameTagIconRenderEvent;
 import de.maxhenkel.voicechat.events.RenderEvents;
+import de.maxhenkel.voicechat.gui.onboarding.OnboardingManager;
 import net.fabricmc.fabric.api.event.Event;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -16,6 +18,7 @@ import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.Entity;
 import wynnvoicechat.mod.VoiceMod;
 import wynnvoicechat.protocol.Peer;
 
@@ -49,9 +52,11 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
     }
 
     private void onNameplate(EntityRenderState s, CameraRenderState camera, PoseStack stack, SubmitNodeCollector collector) {
-        IconPicker.Icon icon = pendingIcon;
+        IconPicker.Icon cancelled = pendingIcon;
         pendingIcon = null;
-        if (icon == null || !(s instanceof AvatarRenderState state) || s.nameTag == null || s.nameTagAttachment == null) return;
+        if (!(s instanceof AvatarRenderState state) || s.nameTag == null || s.nameTagAttachment == null) return;
+        IconPicker.Icon icon = cancelled != null ? cancelled : idleIcon(state);
+        if (icon == null) return;
 
         stack.pushPose();
         stack.translate(s.nameTagAttachment);
@@ -67,6 +72,17 @@ public final class VoiceChatPlugin implements VoicechatPlugin {
                     quad(buffer, pose, x, icon.argb(), SEE_THROUGH_ALPHA, light));
         }
         stack.popPose();
+    }
+
+    // SVC draws nothing for a quiet peer, so no event fires and its icon settings have to be honoured here
+    private static IconPicker.Icon idleIcon(AvatarRenderState state) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (VoicechatClient.CLIENT_CONFIG.hideIcons.get() || !VoicechatClient.CLIENT_CONFIG.showNametagIcons.get()) return null;
+        if (minecraft.level == null || minecraft.options.hideGui || OnboardingManager.isOnboarding()) return null;
+        Entity entity = minecraft.level.getEntity(state.id);
+        if (entity == null || entity == minecraft.player) return null;
+        Peer peer = VoiceMod.peer(entity.getUUID());
+        return peer == null ? null : IconPicker.idleFor(peer);
     }
 
     private static void quad(VertexConsumer buffer, PoseStack.Pose pose, float x, int argb, int alpha, int light) {
