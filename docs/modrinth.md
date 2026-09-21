@@ -2,11 +2,11 @@
 
 Body text for the Modrinth project page. Fields outside the body: project type *mod*, loader *Fabric*, game version *1.21.11*, environment *client only*, license *LGPL-3.0-only*, categories *social* and *utility*, source and issues links to the GitHub repository, Discord link from the README contact section, website https://wynnvoicechat.com.
 
-Icon: `.github/brand/icon-512.png`. Gallery images from `../docs/assets/modrinth/` (banner featured); their CDN URLs are baked into the body below. Summary field: *Voice chat for Wynncraft parties, guilds and friends.* Slug: `wynnvoicechat`.
+Icon: `.github/brand/icon-512.png`. Gallery images from `../docs/assets/modrinth/`: `featured.png` is the featured image (Modrinth crops it to 2:1 in search cards, so it is a full-frame in-game screenshot, not the banner); `banner.png` is the description header only and is uploaded through the description editor, not the gallery. Their CDN URLs are baked into the body below. Summary field: *Voice chat for Wynncraft parties, guilds and friends.* Slug: `wynnvoicechat`.
 
 ---
 
-<p align="center"><img src="https://cdn.modrinth.com/data/EqqrBoe4/images/0d8542e9098d68acd76cf8fcfc257e17d6a188c8.png" alt="WynnVoiceChat: voice chat for Wynncraft parties, guilds and friends" width="680"></p>
+<p align="center"><img src="https://cdn.modrinth.com/data/cached_images/e31e811898337a3dd18c3a7ced3d6436b15dca6d.png" alt="WynnVoiceChat: voice chat for Wynncraft parties, guilds and friends"></p>
 
 Wynncraft runs no voice server, so Simple Voice Chat alone does nothing there. WynnVoiceChat is a small client mod that points your existing Simple Voice Chat installation at a community relay, and the relay routes audio between players on the same Wynncraft world. Install it, join Wynncraft, accept the notice, talk.
 
