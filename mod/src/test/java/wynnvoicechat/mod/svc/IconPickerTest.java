@@ -15,9 +15,9 @@ class IconPickerTest {
 
     @Test
     void reachableAndEnabledPeersGetTheSpeakerTintedByRelation() {
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55FF55), IconPicker.iconFor(peer(Relation.PARTY, true, false)));
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55AAFF), IconPicker.iconFor(peer(Relation.FRIEND, true, false)));
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFFFFC828), IconPicker.iconFor(peer(Relation.GUILD, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFFFFFF55), IconPicker.iconFor(peer(Relation.PARTY, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55FF55), IconPicker.iconFor(peer(Relation.FRIEND, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFF55FFFF), IconPicker.iconFor(peer(Relation.GUILD, true, false)));
         assertEquals(new IconPicker.Icon(IconPicker.SPEAKER, 0xFFFFFFFF), IconPicker.iconFor(peer(Relation.NONE, true, false)));
     }
 
@@ -33,9 +33,9 @@ class IconPickerTest {
 
     @Test
     void idlePeersGetTheQuietSpeakerInTheirRelationTintAtSixtyPercent() {
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF339933), IconPicker.idleFor(peer(Relation.PARTY, true, false)));
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF336699), IconPicker.idleFor(peer(Relation.FRIEND, true, false)));
-        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF997818), IconPicker.idleFor(peer(Relation.GUILD, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF999933), IconPicker.idleFor(peer(Relation.PARTY, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF339933), IconPicker.idleFor(peer(Relation.FRIEND, true, false)));
+        assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF339999), IconPicker.idleFor(peer(Relation.GUILD, true, false)));
         assertEquals(new IconPicker.Icon(IconPicker.SPEAKER_QUIET, 0xFF999999), IconPicker.idleFor(peer(Relation.NONE, true, false)));
     }
 

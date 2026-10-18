@@ -1,7 +1,9 @@
 package wynnvoicechat.mod.svc;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.resources.Identifier;
 import wynnvoicechat.protocol.Peer;
+import wynnvoicechat.protocol.Relation;
 
 /** The nameplate glyph for a voice peer: one white speaker sprite, tinted by relation, crossed when they cannot hear us, waveless and dimmed while they are quiet. */
 public final class IconPicker {
@@ -28,13 +30,18 @@ public final class IconPicker {
         return new Icon(SPEAKER_QUIET, dim(tint(peer)));
     }
 
-    private static int tint(Peer peer) {
-        return switch (peer.relation()) {
-            case PARTY -> 0xFF55FF55;
-            case FRIEND -> 0xFF55AAFF;
-            case GUILD -> 0xFFFFC828;
-            case NONE -> 0xFFFFFFFF;
+    /** Wynncraft's own chat colour for each relation (ADR 0004). */
+    public static ChatFormatting color(Relation relation) {
+        return switch (relation) {
+            case PARTY -> ChatFormatting.YELLOW;
+            case FRIEND -> ChatFormatting.GREEN;
+            case GUILD -> ChatFormatting.AQUA;
+            case NONE -> ChatFormatting.WHITE;
         };
+    }
+
+    private static int tint(Peer peer) {
+        return 0xFF000000 | color(peer.relation()).getColor();
     }
 
     private static int dim(int argb) {

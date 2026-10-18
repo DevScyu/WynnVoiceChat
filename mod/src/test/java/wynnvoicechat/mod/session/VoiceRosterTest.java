@@ -3,6 +3,7 @@ package wynnvoicechat.mod.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import wynnvoicechat.protocol.Peer;
@@ -15,21 +16,22 @@ class VoiceRosterTest {
 
     @Test
     void groupsByRelationInOrderSortsNamesAndMarksMutedAndUnreachable() {
-        List<String> lines = VoiceRoster.lines(List.of(
+        Map<Relation, String> lines = VoiceRoster.lines(List.of(
                 peer("zed", Relation.NONE, true, false),
                 peer("Bob", Relation.PARTY, true, true),
                 peer("Carl", Relation.GUILD, false, false),
                 peer("alice", Relation.PARTY, false, true),
                 peer("Eve", Relation.NONE, false, true)), key -> key.toUpperCase());
 
+        assertEquals(List.of(Relation.PARTY, Relation.GUILD, Relation.NONE), List.copyOf(lines.keySet()));
         assertEquals(List.of(
                 "PARTY: alice, Bob (MUTED)",
                 "GUILD: Carl (UNREACHABLE)",
-                "NONE: Eve, zed (MUTED, UNREACHABLE)"), lines);
+                "NONE: Eve, zed (MUTED, UNREACHABLE)"), List.copyOf(lines.values()));
     }
 
     @Test
     void noPeersNoLines() {
-        assertEquals(List.of(), VoiceRoster.lines(List.of(), key -> key));
+        assertEquals(Map.of(), VoiceRoster.lines(List.of(), key -> key));
     }
 }

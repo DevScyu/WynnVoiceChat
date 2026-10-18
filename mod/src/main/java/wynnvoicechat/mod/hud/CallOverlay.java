@@ -48,7 +48,6 @@ public final class CallOverlay implements HudElement {
     private static final int PANEL_HEIGHT = 32;
     private static final int PANEL_INSET = 8;
     private static final int TEXT = 0xFFFFFFFF;
-    private static final int TITLE = 0xFFFFFF00;
     private static final int PILL = 0x80000000;
     private static final int BADGE = 0xFF6F6F6F;
     private static final int OUTLINE = 0xFF000000;
@@ -124,7 +123,7 @@ public final class CallOverlay implements HudElement {
         int x = graphics.guiWidth() - MARGIN - width;
         graphics.blitSprite(RenderPipelines.GUI_TEXTURED, PANEL, x, TOP, width, PANEL_HEIGHT);
         face().draw(graphics, x + PANEL_INSET, TOP + (PANEL_HEIGHT - ICON) / 2);
-        graphics.drawString(font, title, x + textX, TOP + 7, TITLE, false);
+        graphics.drawString(font, title, x + textX, TOP + 7, TEXT, false);
         int hintX = hint(graphics, font, bound(accept), acceptLabel, x + textX);
         hint(graphics, font, bound(decline), declineLabel, hintX);
     }

@@ -19,6 +19,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import wynnvoicechat.mod.VoiceMod;
 import wynnvoicechat.mod.session.VoiceRoster;
+import wynnvoicechat.mod.svc.IconPicker;
 import wynnvoicechat.protocol.CallAction;
 import wynnvoicechat.protocol.Packet;
 import wynnvoicechat.protocol.Peer;
@@ -128,9 +129,8 @@ public final class VoiceCommand {
             context.getSource().sendFeedback(Component.translatable("wynnvoicechat.who.empty").withStyle(ChatFormatting.AQUA));
             return 1;
         }
-        for (String line : VoiceRoster.lines(peers, key -> I18n.get("wynnvoicechat.who." + key))) {
-            context.getSource().sendFeedback(Component.literal(line).withStyle(ChatFormatting.AQUA));
-        }
+        VoiceRoster.lines(peers, key -> I18n.get("wynnvoicechat.who." + key)).forEach((relation, line) ->
+                context.getSource().sendFeedback(Component.literal(line).withStyle(IconPicker.color(relation))));
         return 1;
     }
 

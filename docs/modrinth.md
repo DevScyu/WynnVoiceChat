@@ -23,14 +23,12 @@ WynnVoiceChat does not replace Simple Voice Chat; you install both. Simple Voice
 - Voice is off until you read and accept the notice on your first world join. You only ever hear players who opted in too.
 - You hear players on your world within 32 blocks (whispering halves it), matching the housing plot you are on.
 - Choose who may hear you with `/wynnvoicechat tier` (`/wvc` is a short alias): your party (default), your friends and guild, or everyone nearby. Party members hear each other anywhere.
-- A speaker icon on the nameplate, tinted by relation: green party, blue friend, yellow guild, white stranger.
+- A speaker icon on the nameplate, tinted by relation: yellow party, green friend, aqua guild, white stranger, the same colours Wynncraft uses in chat.
 - `/wvc guild on` lets you hear and be heard by guild members anywhere, in a read-only group in Simple Voice Chat.
 - `/wvc block <player>` silences someone in both directions. `/wvc report <player> [reason]` reports someone you heard in the last two minutes. `/wvc disable` turns everything off.
 - The relay verifies you through Mojang's session server, the same way a Minecraft server does when you join it.
 
 The mod only activates on `wynncraft.com`; on any other server it does nothing.
-
-<p align="center"><img src="https://cdn.modrinth.com/data/EqqrBoe4/images/4e18a5c073b3e7b890fb9ebefe57c5b89825ebd3.png" alt="A player's nameplate with a blue speaker icon showing they are a friend on voice" width="480"></p>
 
 ### Calls
 
