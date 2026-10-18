@@ -125,7 +125,7 @@ class VoiceManager(
 
     init {
         for (tier in VoiceTier.entries) Gauge.builder("voice_sessions") { sessions.values.count { it.tier == tier } }.tag("tier", tier.name).register(registry)
-        Gauge.builder("voice_sessions_connected") { sessions.values.count { it.connected } }.register(registry)
+        Gauge.builder("voice_sessions_connected") { connectedCount() }.register(registry)
         Gauge.builder("voice_sessions_svc_disabled") { sessions.values.count { it.disabled } }.register(registry)
         Gauge.builder("voice_ring_bytes") { sessions.values.sumOf { it.speech.bytes } }.register(registry)
         Gauge.builder("voice_blocks_active") { moderation.blockCount }.register(registry)
@@ -169,6 +169,8 @@ class VoiceManager(
     fun stop() {
         scheduler?.shutdownNow()
     }
+
+    fun connectedCount(): Int = sessions.values.count { it.connected }
 
     private fun guarded(block: () -> Unit) {
         try {

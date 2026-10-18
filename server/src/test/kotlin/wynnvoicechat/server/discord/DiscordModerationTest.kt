@@ -43,7 +43,7 @@ class DiscordModerationTest {
 
     private val keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     private val publicKeyHex = HexFormat.of().formatHex(keys.public.encoded.takeLast(32).toByteArray())
-    private val config = DiscordConfig("token", publicKeyHex, "mod-role", "report-channel", "app", "guild", "mod-log")
+    private val config = DiscordConfig("token", publicKeyHex, "mod-role", "report-channel", "app", "guild", "mod-log", "stats")
 
     private var now = 1_000_000L
     private val moderation = testModeration("discord-moderation-test") { now }
@@ -104,6 +104,14 @@ class DiscordModerationTest {
     private fun sign(timestamp: String, body: ByteArray): String {
         val signature = Signature.getInstance("Ed25519").apply { initSign(keys.private); update(timestamp.toByteArray()); update(body) }
         return HexFormat.of().formatHex(signature.sign())
+    }
+
+    @Test
+    fun `stats channel is renamed only when the count changes`() {
+        discord.updateStatsChannel()
+        discord.updateStatsChannel()
+        val renames = requests.filter { it.method == "PATCH" && it.path == "/channels/stats" }
+        assertEquals(listOf("""{"name":"Players in voice: 0"}"""), renames.map { String(it.body) })
     }
 
     // --- signature and transport ---

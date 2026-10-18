@@ -16,6 +16,7 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
 import wynnvoicechat.server.Metrics
@@ -33,6 +34,8 @@ data class DiscordConfig(
     val guildId: String,
     /** Optional: every ban and unban is posted here as one line. */
     val modLogChannelId: String? = null,
+    /** Optional: a channel renamed to the connected player count. */
+    val statsChannelId: String? = null,
 ) {
     companion object {
         val VARIABLES = listOf(
@@ -43,7 +46,8 @@ data class DiscordConfig(
         /** null unless every variable is set. */
         fun fromEnv(): DiscordConfig? {
             val values = VARIABLES.map { System.getenv(it)?.takeIf { v -> v.isNotBlank() } ?: return null }
-            return DiscordConfig(values[0], values[1], values[2], values[3], values[4], values[5], System.getenv("DISCORD_MOD_LOG_CHANNEL_ID")?.takeIf { it.isNotBlank() })
+            fun optional(name: String) = System.getenv(name)?.takeIf { it.isNotBlank() }
+            return DiscordConfig(values[0], values[1], values[2], values[3], values[4], values[5], optional("DISCORD_MOD_LOG_CHANNEL_ID"), optional("DISCORD_STATS_CHANNEL_ID"))
         }
     }
 }
@@ -110,7 +114,7 @@ class DiscordModeration(
         }
     }
     enum class BanSource { BUTTON, COMMAND }
-    enum class Operation { POST_REPORT, REPORT_THREAD, REGISTER_COMMANDS, MOD_LOG }
+    enum class Operation { POST_REPORT, REPORT_THREAD, REGISTER_COMMANDS, MOD_LOG, STATS_CHANNEL }
     enum class RequestOutcome { OK, ERROR }
 
     companion object {
@@ -142,6 +146,8 @@ class DiscordModeration(
         /** Interactions are a few KB; anything larger is not Discord. */
         const val MAX_BODY_BYTES = 64 * 1024
         private const val LOOKUP_TIMEOUT_MS = 2_500L
+        /** Discord allows two channel renames per ten minutes. */
+        const val STATS_INTERVAL_MS = 5 * 60_000L
     }
 
     val boundPort: Int get() = server!!.address.port
@@ -156,11 +162,31 @@ class DiscordModeration(
             start()
         }
         voice.onReport = { postReport(it) }
+        if (config.statsChannelId != null) {
+            statsScheduler = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "discord-stats").apply { isDaemon = true } }.also {
+                it.scheduleAtFixedRate(::updateStatsChannel, 0, STATS_INTERVAL_MS, TimeUnit.MILLISECONDS)
+            }
+        }
         logger.info("Discord moderation enabled on port {}; report forum tags: {}", boundPort, tags.keys)
     }
 
     fun stop() {
         server?.stop(0)
+        statsScheduler?.shutdownNow()
+    }
+
+    private var statsScheduler: ScheduledExecutorService? = null
+    @Volatile private var statsShown: Int? = null
+
+    fun updateStatsChannel() {
+        val channel = config.statsChannelId ?: return
+        val count = voice.connectedCount()
+        if (count == statsShown) return
+        rest.send("PATCH", "/channels/$channel", "application/json", gson.toJson(mapOf("name" to "Players in voice: $count")).toByteArray())
+            .whenComplete { _, error ->
+                requests.getValue(Operation.STATS_CHANNEL).getValue(if (error == null) RequestOutcome.OK else RequestOutcome.ERROR).increment()
+                if (error == null) statsShown = count else logger.warn("Stats channel rename failed: {}", error.message)
+            }
     }
 
     private fun serve(exchange: HttpExchange) = exchange.use {

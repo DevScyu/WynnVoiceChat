@@ -66,6 +66,7 @@ but that path; leave `METRICS_PORT` on loopback. Every setting is an environment
 | `METRICS_PUSH_URL` / `METRICS_PUSH_TOKEN` / `METRICS_PUSH_STEP` | — / — / `30` | Also push the same meters over OTLP/HTTP every `STEP` seconds with `Authorization: Bearer <token>`; use this where the host has no private network (Pterodactyl) |
 | `DISCORD_APPLICATION_ID` / `DISCORD_GUILD_ID` | — | Application id and the server the `/voice` commands are registered in |
 | `DISCORD_MOD_LOG_CHANNEL_ID`        | —         | Optional: channel that gets one line per ban and unban |
+| `DISCORD_STATS_CHANNEL_ID`          | —         | Optional: channel renamed to "Players in voice: N" every 5 minutes when the count changes; give `@everyone` Connect denied if it is a voice channel |
 | `DISCORD_BOT_TOKEN`                 | —         | Bot token used to post reports and register commands |
 | `DISCORD_PUBLIC_KEY`                | —         | Application public key every interaction is verified against |
 | `DISCORD_MOD_ROLE_ID`               | —         | Role allowed to use the buttons and `/voice` commands, re-checked on every interaction |
